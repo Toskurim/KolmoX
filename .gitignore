@@ -1,0 +1,15 @@
+﻿__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+.pytest_cache/
+benchmarks/datasets/*
+!benchmarks/datasets/.gitkeep
+*.kmx
+*.bin
+.vscode/
+.idea/

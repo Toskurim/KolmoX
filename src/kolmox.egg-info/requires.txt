@@ -1,0 +1,5 @@
+zstandard>=0.22.0
+numpy>=1.26.0
+rich>=13.7.0
+click>=8.1.0
+requests>=2.31.0
