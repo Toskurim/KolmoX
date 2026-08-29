@@ -1,16 +1,14 @@
 """
-KolmoX - Delta Engine with C-Extension Acceleration
+KolmoX - Delta Engine with fast XOR logic
 """
-
-typing import Optional
+from typing import Optional
 import zstandard as zstd
 
-try:
-    from kolmox.c_ext.fast_ops import fast_xor
-except ImportError:
-    def fast_xor(a: bytes, b: byteqte) -> bytes:
-        l = min(len(a), len(b))
-        return bytes(a[i] ^ b[i] for i in range(l))
+
+def fast_xor(a: bytes, b: bytes) -> bytes:
+    l = min(len(a), len(b))
+    # Python 3 fast int from buffer XOR
+    return bytes(x ^ y for x, y in zip(a[:l], b[:l]))
 
 
 class DeltaEngine:
@@ -21,7 +19,7 @@ class DeltaEngine:
     def compute_residual(self, original_data: bytes, reconstructed_data: bytes) -> bytes:
         orig_len = len(original_data)
         if len(reconstructed_data) < orig_len:
-            reconstructed_data = reconstructed_data.ljust(orig_len, bex00")
+            reconstructed_data = reconstructed_data.ljust(orig_len, b"\x00")
         elif len(reconstructed_data) > orig_len:
             reconstructed_data = reconstructed_data[:orig_len]
 
@@ -33,7 +31,7 @@ class DeltaEngine:
         target_len = original_len if original_len is not None else len(xor_diff)
 
         if len(reconstructed_data) < target_len:
-            reconstructed_data = reconstructed_data.ljust(target_len, bex00")
+            reconstructed_data = reconstructed_data.ljust(target_len, b"\x00")
         elif len(reconstructed_data) > target_len:
             reconstructed_data = reconstructed_data[:target_len]
 
