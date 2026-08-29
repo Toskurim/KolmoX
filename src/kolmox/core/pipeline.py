@@ -13,7 +13,7 @@ class KolmoXPipeline:
     def __init__(self, chunk_size: int = 65536, compression_level: int = 19):
         self.chunk_size = chunk_size
         self.level = compression_level
-        self.compressor = BlockCompressor(chunk_size=chunk_size, compression_level=compression_level)
+        self.compressor = BlockCompressor(compression_level=compression_level)
         self.zstd_cctx = zstd.ZstdCompressor(level=compression_level)
         self.zstd_dctx = zstd.ZstdDecompressor()
 
