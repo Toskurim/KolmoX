@@ -13,7 +13,7 @@ class KolmoXPipeline:
     def __init__(self, chunk_size: int = 65536, compression_level: int = 19):
         self.chunk_size = chunk_size
         self.level = compression_level
-        self.compressor = BlockCompressor(compression_level=compression_level)
+        self.compressor = BlockCompressor()
         self.zstd_cctx = zstd.ZstdCompressor(level=compression_level)
         self.zstd_dctx = zstd.ZstdDecompressor()
 
@@ -31,7 +31,7 @@ class KolmoXPipeline:
         return self.compressor.compress_block(data)
 
     def decompress_bytes(self, compressed_data: bytes) -> bytes:
-        if compressed_data.startswith(b"\x28\xb5\x2f\xfd"):  # Standard Zstd magic frame
+        if compressed_data.startswith(b"\x28\xb5\x2f\xfd"):
             decomp = self.zstd_dctx.decompress(compressed_data)
             if decomp.startswith(RasterEngine.MAGIC_HEADER):
                 return RasterEngine.decompress_rgb(decomp)
