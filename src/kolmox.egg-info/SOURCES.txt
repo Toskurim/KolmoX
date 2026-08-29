@@ -14,6 +14,7 @@ src/kolmox/core/__init__.py
 src/kolmox/core/chunker.py
 src/kolmox/core/container.py
 src/kolmox/core/delta.py
+src/kolmox/core/mesh_cad.py
 src/kolmox/core/pipeline.py
 src/kolmox/core/stride.py
 src/kolmox/core/text_columnar.py

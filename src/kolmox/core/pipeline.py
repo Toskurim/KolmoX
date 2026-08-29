@@ -1,5 +1,5 @@
 """
-KolmoX - Unified Adaptive Pipeline
+KolmoX - Unified Adaptive Pipeline with CAD & Mesh Pre-processing
 """
 
 import struct
@@ -9,6 +9,7 @@ from kolmox.core.chunker import BlockCompressor
 from kolmox.core.container import KolmoXContainer
 from kolmox.core.delta import DeltaEngine
 from kolmox.core.text_columnar import TextColumnarEngine
+from kolmox.core.mesh_cad import MeshCADEngine
 from kolmox.sandbox.runner import SandboxRunner
 
 MAGIC_CONTAINER = b"KMX3"
@@ -35,22 +36,36 @@ class KolmoXPipeline:
         )
 
     def compress(self, data: bytes) -> bytes:
-        # Check if entire dataset is structured CSV/Text first
+        direct = self.cctx.compress(data)
+
+        # 1. Check 3D CAD Mesh (.obj)
+        if MeshCADEngine.is_obj_mesh(data) and len(data) < 10_000_000:
+            try:
+                meta, geom = MeshCADEngine.transpose_mesh(data)
+                rebuilt = MeshCADEngine.untranspose_mesh(meta, geom)
+                if rebuilt == data:
+                    comp_geom = self.cctx.compress(geom)
+                    cand = struct.pack(">4sQI", b"KMXG", len(data), len(meta)) + meta + comp_geom
+                    if len(cand) < len(direct):
+                        return cand
+            except Exception:
+                pass
+
+        # 2. Check Tabular / CSV Stream
         is_tabular, sep = TextColumnarEngine.is_tabular_text(data)
-        if is_tabular and len(data) < 5_000_000:
+        if is_tabular and len(data) < 10_000_000:
             try:
                 hdr, payload = TextColumnarEngine.transpose_text(data, sep)
                 rebuilt = TextColumnarEngine.untranspose_text(hdr, payload, sep)
                 if rebuilt == data:
                     comp_payload = self.cctx.compress(payload)
-                    total_candidate = struct.pack(">4sQIB", b"KMXT", len(data), len(hdr), ord(sep)) + hdr + comp_payload
-                    direct = self.cctx.compress(data)
-                    if len(total_candidate) < len(direct):
-                        return total_candidate
+                    cand = struct.pack(">4sQIB", b"KMXT", len(data), len(hdr), ord(sep)) + hdr + comp_payload
+                    if len(cand) < len(direct):
+                        return cand
             except Exception:
                 pass
 
-        # Standard Multi-Block Chunking
+        # 3. Standard Multi-Block Chunking
         chunks = [data[i : i + self.chunk_size] for i in range(0, len(data), self.chunk_size)]
         block_payloads = [self.block_comp.compress_block(c) for c in chunks]
 
@@ -62,10 +77,24 @@ class KolmoXPipeline:
 
         compressed_stream = self.cctx.compress(bytes(combined))
         header = struct.pack(">4sQI", MAGIC_CONTAINER, len(data), len(chunks))
-        return header + compressed_stream
+        
+        final_cand = header + compressed_stream
+        return final_cand if len(final_cand) < len(direct) else struct.pack(">4sQI", b"KMX0", len(data), 0) + direct
 
     def decompress(self, kmx_data: bytes) -> bytes:
-        if kmx_data[:4] == b"KMXT":
+        magic = kmx_data[:4]
+
+        if magic == b"KMX0":
+            return self.dctx.decompress(kmx_data[16:])
+
+        if magic == b"KMXG":
+            magic, orig_size, meta_len = struct.unpack(">4sQI", kmx_data[:16])
+            meta_end = 16 + meta_len
+            meta = kmx_data[16:meta_end]
+            decomp_geom = self.dctx.decompress(kmx_data[meta_end:])
+            return MeshCADEngine.untranspose_mesh(meta, decomp_geom)
+
+        if magic == b"KMXT":
             magic, orig_size, hdr_len, sep_byte = struct.unpack(">4sQIB", kmx_data[:17])
             sep = chr(sep_byte)
             hdr_end = 17 + hdr_len
@@ -73,7 +102,7 @@ class KolmoXPipeline:
             decomp_payload = self.dctx.decompress(kmx_data[hdr_end:])
             return TextColumnarEngine.untranspose_text(hdr, decomp_payload, sep)
 
-        if kmx_data[:4] == b"KMX2":
+        if magic == b"KMX2":
             unpacked = KolmoXContainer.unpack(kmx_data)
             reconstructed = self.runner.execute(unpacked["script_source"])
             return self.delta_engine.apply_residual(reconstructed, unpacked["residual_data"])
