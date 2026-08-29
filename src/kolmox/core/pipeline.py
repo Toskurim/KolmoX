@@ -1,55 +1,73 @@
 """
 KolmoX - Core Hybrid Compression Pipeline
-Integrates Multiblock Chunker, Synthesis XOR Delta, Spatial Mesh, 2D Raster, and Temporal Video.
+Integrates Multiblock Chunker, Generative Synthesis, Spatial Mesh, 2D Raster, and Temporal Video.
 """
 from typing import Optional, List
+import struct
 import zstandard as zstd
 from kolmox.core.chunker import BlockCompressor
-from kolmox.core.delta import DeltaEngine, KolmoXContainer
+from kolmox.core.delta import DeltaEngine
+from kolmox.sandbox.runner import SandboxRunner
 from kolmox.engines.raster_engine import RasterEngine
 from kolmox.engines.video_engine import VideoEngine
 
 
 class KolmoXPipeline:
+    MAGIC_MULTIBLOCK = b"KMX3"
+
     def __init__(self, chunk_size: int = 65536, compression_level: int = 19):
         self.chunk_size = chunk_size
         self.level = compression_level
-        self.compressor = BlockCompressor()
-        self.delta_engine = DeltaEngine()
+        self.compressor = BlockCompressor(delta_level=compression_level)
+        self.delta_engine = DeltaEngine(compression_level=compression_level)
+        self.runner = SandboxRunner()
         self.zstd_cctx = zstd.ZstdCompressor(level=compression_level)
         self.zstd_dctx = zstd.ZstdDecompressor()
 
     def compress(self, data: bytes) -> bytes:
-        """Alias for multiblock chunking pipeline."""
-        return self.compressor.compress_block(data)
+        if len(data) <= self.chunk_size:
+            return self.compressor.compress_block(data)
+
+        blocks = []
+        for i in range(0, len(data), self.chunk_size):
+            chunk = data[i : i + self.chunk_size]
+            compressed_chunk = self.compressor.compress_block(chunk)
+            blocks.append(compressed_chunk)
+
+        payload = bytearray(struct.pack(">4sI", self.MAGIC_MULTIBLOCK, len(blocks)))
+        for b in blocks:
+            payload.extend(struct.pack(">I", len(b)))
+            payload.extend(b)
+        return bytes(payload)
 
     def decompress(self, compressed_data: bytes) -> bytes:
-        """Alias for multiblock dechunking pipeline."""
-        return self.compressor.decompress_block(compressed_data)
+        if compressed_data.startswith(self.MAGIC_MULTIBLOCK):
+            magic, num_blocks = struct.unpack(">4sI", compressed_data[:8])
+            offset = 8
+            restored = bytearray()
+            for _ in range(num_blocks):
+                block_len = struct.unpack(">I", compressed_data[offset : offset + 4])[0]
+                offset += 4
+                block_data = compressed_data[offset : offset + block_len]
+                offset += block_len
+                chunk_bytes, _ = self.compressor.decompress_block(block_data)
+                restored.extend(chunk_bytes)
+            return bytes(restored)
+
+        restored_bytes, _ = self.compressor.decompress_block(compressed_data)
+        return restored_bytes
 
     def compress_with_script(self, data: bytes, script: str) -> bytes:
-        """Compresses data against a synthesized program using XOR delta residuals."""
-        target_len = len(data)
-        synthetic_data = self.delta_engine.execute_generator(script)
-        if len(synthetic_data) < target_len:
-            synthetic_data = synthetic_data.ljust(target_len, b"\x00")
-        else:
-            synthetic_data = synthetic_data[:target_len]
-
-        xor_diff = self.delta_engine.compute_xor_delta(data, synthetic_data)
-        compressed_delta = self.zstd_cctx.compress(xor_diff)
-        return KolmoXContainer.pack(script, compressed_delta)
+        orig_len = len(data)
+        reconstructed = self.runner.execute(script)
+        residual = self.delta_engine.compute_residual(data, reconstructed)
+        script_bytes = script.encode("utf-8")
+        header = struct.pack(">BIII", 1, len(script_bytes), orig_len, 0)
+        return header + script_bytes + residual
 
     def decompress_with_script(self, container_bytes: bytes) -> bytes:
-        """Restores bit-exact data from script container."""
-        script, compressed_delta = KolmoXContainer.unpack(container_bytes)
-        xor_diff = self.zstd_dctx.decompress(compressed_delta)
-        synthetic_data = self.delta_engine.execute_generator(script)
-        if len(synthetic_data) < len(xor_diff):
-            synthetic_data = synthetic_data.ljust(len(xor_diff), b"\x00")
-        else:
-            synthetic_data = synthetic_data[: len(xor_diff)]
-        return self.delta_engine.apply_xor_delta(synthetic_data, xor_diff)
+        restored, _ = self.compressor.decompress_block(container_bytes)
+        return restored
 
     def compress_bytes(
         self,
@@ -70,8 +88,6 @@ class KolmoXPipeline:
             if decomp.startswith(RasterEngine.MAGIC_HEADER):
                 return RasterEngine.decompress_rgb(decomp)
             return decomp
-        if compressed_data.startswith(b"KMX2"):
-            return self.decompress_with_script(compressed_data)
         return self.decompress(compressed_data)
 
     def compress_video_frames(
