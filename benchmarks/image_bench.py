@@ -7,7 +7,9 @@ from kolmox.engines.raster_engine import RasterEngine
 
 console = Console()
 width, height, channels = 512, 512, 3
-y, x = np.ogrid[:height, :width]
+
+# Creazione griglia 2D corretta (shape: 512, 512)
+y, x = np.mgrid[:height, :width]
 r = (np.sin(x / 16.0) * 120 + 128).astype(np.uint8)
 g = (np.cos(y / 16.0) * 120 + 128).astype(np.uint8)
 b = ((x + y) % 256).astype(np.uint8)
