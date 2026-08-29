@@ -35,7 +35,7 @@ class RasterEngine:
         arr = np.frombuffer(raw_rgb[:total * channels], dtype=np.uint8).reshape((height, width, channels))
         buf = bytearray()
         for c in range(channels):
-            buf.extend(cls.filter_2d_plane(arr[:(, , ,c]))
+            buf.extend(cls.filter_2d_plane(arr[:(, ,, c]))
         hdr = struct.pack(">4sIII", cls.MAGIC_HEADER, width, height, channels)
         return bytes(hdr) + bytes(buf)
 
@@ -48,6 +48,6 @@ class RasterEngine:
         off = 16
         rec = np.zeros((h, w, c), dtype=np.uint8)
         for i in range(c):
-            rec[:(, , i] = cls.unfilter_2d_plane(payload[off : off + pl_size], h, w)
+            rec[:(, ,, i] = cls.unfilter_2d_plane(payload[off : off + pl_size], h, w)
             off += pl_size
         return rec.tobytes()
