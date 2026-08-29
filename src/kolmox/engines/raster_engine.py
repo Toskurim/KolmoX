@@ -4,8 +4,9 @@ KolmoX - 2D Raster & Video Pre-Processing Engine
 import struct
 import numpy as np
 
+
 class RasterEngine:
-    MAGIC_HEADER = b'KMXR'
+    MAGIC_HEADER = b"KMXR"
 
     @staticmethod
     def filter_2d_plane(plane: np.ndarray) -> bytes:
@@ -13,9 +14,9 @@ class RasterEngine:
         filtered = np.zeros((height, width), dtype=np.uint8)
         for y in range(height):
             for x in range(width):
-                left = plane[y, x - 1] if x > 0 else 0
-                up = plane[y - 1, x] if y > 0 else 0
-                filtered[y, x] = (int(plane[y, x]) - int(left // 2 + up // 2)) % 256
+                left = int(plane[y, x - 1]) if x > 0 else 0
+                up = int(plane[y - 1, x]) if y > 0 else 0
+                filtered[y, x] = (int(plane[y, x]) - (left // 2 + up // 2)) % 256
         return filtered.tobytes()
 
     @staticmethod
@@ -24,18 +25,18 @@ class RasterEngine:
         plane = np.zeros((height, width), dtype=np.uint8)
         for y in range(height):
             for x in range(width):
-                left = plane[y, x - 1] if x > 0 else 0
-                up = plane[y - 1, x] if y > 0 else 0
-                plane[y, x] = (int(filtered[y, x]) + int(left // 2 + up // 2)) % 256
+                left = int(plane[y, x - 1]) if x > 0 else 0
+                up = int(plane[y - 1, x]) if y > 0 else 0
+                plane[y, x] = (int(filtered[y, x]) + (left // 2 + up // 2)) % 256
         return plane
 
     @classmethod
     def compress_rgb(cls, raw_rgb: bytes, width: int, height: int, channels: int = 3) -> bytes:
         total = width * height
-        arr = np.frombuffer(raw_rgb[:total * channels], dtype=np.uint8).reshape((height, width, channels))
+        arr = np.frombuffer(raw_rgb[: total * channels], dtype=np.uint8).reshape((height, width, channels))
         buf = bytearray()
         for c in range(channels):
-            buf.extend(cls.filter_2d_plane(arr[:(, ,, c]))
+            buf.extend(cls.filter_2d_plane(arr[:, :, c]))
         hdr = struct.pack(">4sIII", cls.MAGIC_HEADER, width, height, channels)
         return bytes(hdr) + bytes(buf)
 
@@ -48,6 +49,6 @@ class RasterEngine:
         off = 16
         rec = np.zeros((h, w, c), dtype=np.uint8)
         for i in range(c):
-            rec[:(, ,, i] = cls.unfilter_2d_plane(payload[off : off + pl_size], h, w)
+            rec[:, :, i] = cls.unfilter_2d_plane(payload[off : off + pl_size], h, w)
             off += pl_size
         return rec.tobytes()
