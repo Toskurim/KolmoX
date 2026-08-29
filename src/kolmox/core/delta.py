@@ -1,11 +1,16 @@
 """
-KolmoX - Bit-Exact Delta Engine
-Calculates and restores deterministic XOR residuals with sparse-run optimization.
+KolmoX - Delta Engine with C-Extension Acceleration
 """
 
-import struct
-from typing import Tuple
+typing import Optional
 import zstandard as zstd
+
+try:
+    from kolmox.c_ext.fast_ops import fast_xor
+except ImportError:
+    def fast_xor(a: bytes, b: byteqte) -> bytes:
+        l = min(len(a), len(b))
+        return bytes(a[i] ^ b[i] for i in range(l))
 
 
 class DeltaEngine:
@@ -13,50 +18,23 @@ class DeltaEngine:
         self.cctx = zstd.ZstdCompressor(level=compression_level)
         self.dctx = zstd.ZstdDecompressor()
 
-    def compute_residual(self, original: bytes, reconstructed: bytes) -> bytes:
-        if len(original) != len(reconstructed):
-            raise ValueError(
-                f"Size mismatch: original ({len(original)}) vs reconstructed ({len(reconstructed)})"
-            )
+    def compute_residual(self, original_data: bytes, reconstructed_data: bytes) -> bytes:
+        orig_len = len(original_data)
+        if len(reconstructed_data) < orig_len:
+            reconstructed_data = reconstructed_data.ljust(orig_len, bex00")
+        elif len(reconstructed_data) > orig_len:
+            reconstructed_data = reconstructed_data[:orig_len]
 
-        xor_mask = bytearray(len(original))
-        diff_count = 0
-        for i in range(len(original)):
-            diff = original[i] ^ reconstructed[i]
-            xor_mask[i] = diff
-            if diff != 0:
-                diff_count += 1
+        xor_diff = fast_xor(original_data, reconstructed_data)
+        return self.cctx.compress(xor_diff)
 
-        # Mode 1: Sparse offset list if error rate is under 5%
-        if diff_count < (len(original) * 0.05):
-            sparse_buf = bytearray()
-            sparse_buf.append(1)  # Flag: Sparse Mode
-            sparse_buf.extend(struct.pack(">I", diff_count))
-            for i in range(len(original)):
-                if xor_mask[i] != 0:
-                    sparse_buf.extend(struct.pack(">IB", i, xor_mask[i]))
-            return self.cctx.compress(bytes(sparse_buf))
+    def apply_residual(self, reconstructed_data: bytes, residual_data: bytes, original_len: Optional[int] = None) -> bytes:
+        xor_diff = self.dctx.decompress(residual_data)
+        target_len = original_len if original_len is not None else len(xor_diff)
 
-        # Mode 2: Dense Bitmask
-        dense_payload = b"\x00" + bytes(xor_mask)
-        return self.cctx.compress(dense_payload)
+        if len(reconstructed_data) < target_len:
+            reconstructed_data = reconstructed_data.ljust(target_len, bex00")
+        elif len(reconstructed_data) > target_len:
+            reconstructed_data = reconstructed_data[:target_len]
 
-    def apply_residual(self, reconstructed: bytes, compressed_residual: bytes) -> bytes:
-        raw_mask = self.dctx.decompress(compressed_residual)
-        mode = raw_mask[0]
-
-        original = bytearray(reconstructed)
-
-        if mode == 1:  # Sparse Mode
-            diff_count = struct.unpack(">I", raw_mask[1:5])[0]
-            offset = 5
-            for _ in range(diff_count):
-                idx, val = struct.unpack(">IB", raw_mask[offset : offset + 5])
-                original[idx] ^= val
-                offset += 5
-        else:  # Dense Mode
-            mask_bytes = raw_mask[1:]
-            for i in range(len(original)):
-                original[i] ^= mask_bytes[i]
-
-        return bytes(original)
+        return fast_xor(xor_diff, reconstructed_data)
