@@ -4,28 +4,28 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)](https://www.python.org/)
 
-**KolmoX** è un framework di compressione ad alte prestazioni e **100% bit-exact**, progettato per superare i limiti dei motori entropici generici (come Gzip e Zstandard standard) combinando **precondizionatori di dominio strutturali**, **trasformazioni geometriche/colonnari**, **decompressione hardware-accelerata (CUDA/NVDEC)** e **sintesi generica basata su modelli**.
+**KolmoX** is a high-performance, **100% bit-exact** compression framework designed to surpass generic entropy coders (like standard Gzip and Zstandard) by combining **structural domain-specific preconditioners**, **geometric/columnar transforms**, **hardware-accelerated decompression (CUDA/NVDEC)**, and **model-driven synthesis**.
 
 ---
 
-## 🚀 Caratteristiche Principali
+## 🚀 Key Features
 
-- **Garanzia Bit-Exact al 100%:** Ricostruzione matematica perfetta e verificabile tramite hash crittografico (SHA-256) per ogni dominio trattato.
-- **Precondizionamento Dominio-Specifico:**
-  - **CAD & 3D Mesh Engine:** Separazione e planarizzazione delle coordinate di vertice `.obj` mantenendo l'ordinamento strict delle righe.
-  - **Text & Telemetry Columnar Demuxer:** Riorganizzazione per colonne contigue di log industriali, CSV e flussi tabulari.
-  - **Binary Stride Demuxer:** Rilevamento automatico dell'interleaving binario periodico tramite autocorrelazione.
-  - **2D & Temporal Video Stream Engine:** Differenziali predittivi spaziali e temporali (Delta-XOR) con decodifica hardware NVDEC/CUDA per flussi video non compressi (fino a risoluzione 5K a 60 FPS).
-- **Sintesi Generativa (LLM & Heuristic):** Generazione e applicazione di delta predittivi compatti su payload computazionalmente derivabili.
-- **Pipeline Multi-Thread & Streaming:** Gestione a blocchi asincrona con buffer sicuri contro interruzioni su pipe e flussi di dati di grandi dimensioni.
+- **100% Bit-Exact Guarantee:** Flawless mathematical reconstruction verified via cryptographic hash (SHA-256) across all supported data domains.
+- **Domain-Specific Preconditioning:**
+  - **CAD & 3D Mesh Engine:** Vertex coordinate separation and planarization for `.obj` files while strictly preserving line order.
+  - **Text & Telemetry Columnar Demuxer:** Contiguous column reorganization for industrial logs, CSVs, and tabular streams.
+  - **Binary Stride Demuxer:** Automatic periodic binary interleaving detection via autocorrelation.
+  - **2D & Temporal Video Stream Engine:** Spatial and temporal predictive differences (Delta-XOR) with NVDEC/CUDA hardware acceleration for uncompressed video streams (up to 5K @ 60 FPS).
+- **Generative Synthesis (LLM & Heuristic):** Generation and application of compact predictive deltas on algorithmically reproducible payloads.
+- **Multi-Thread & Streaming Pipeline:** Asynchronous chunk processing with robust pipe buffers for high-throughput streaming.
 
 ---
 
-## 📊 Benchmark Comparativi Reali
+## 📊 Real-World Benchmark Results
 
-Tutti i test riportati certificano il ripristino matematico esatto dei dati (nessuna perdita di precisione):
+All tests certify exact mathematical data restoration (zero precision loss):
 
-| Dominio Dati | Pipeline / Formato | Gzip (Lvl 9) | Zstd (Lvl 19) | **KolmoX (Structural)** | Vantaggio vs Zstd |
+| Data Domain | Pipeline / Format | Gzip (Lvl 9) | Zstd (Lvl 19) | **KolmoX (Structural)** | Gain vs Zstd |
 | :--- | :--- | :---: | :---: | :---: | :---: |
 | **Industrial Telemetry (`.csv`)** | Columnar Demux + Zstd | 3.93x | 19.65x | **40.20x** | **+104%** |
 | **Binary Register Packets (`.bin`)** | Stride Autocorr + Demux | 2.65x | 4.83x | **55.53x** | **+1050% (11.5x)** |
@@ -35,55 +35,55 @@ Tutti i test riportati certificano il ripristino matematico esatto dei dati (nes
 
 ---
 
-## 🛠️ Installazione
+## 🛠️ Installation
 
 ```bash
-# Clona il repository
+# Clone repository
 git clone https://github.com/toskurim/KolmoX.git
 cd KolmoX
 
-# Installa le dipendenze
+# Install dependencies
 pip install -r requirements.txt
 pip install -e .
 ```
 
 ---
 
-## 💻 Utilizzo da Riga di Comando (CLI)
+## 💻 CLI Usage
 
-### Compressione ed Estrazione Video Stream Lossless
+### Lossless Video Stream Compression & Decompression
 
-KolmoX include un motore di streaming asincrono che sfrutta FFmpeg e l'accelerazione GPU (CUDA) per comprimere e ripristinare sequenze video RAW ad altissima risoluzione:
+KolmoX includes an asynchronous streaming engine using FFmpeg and GPU acceleration (CUDA) to compress and restore high-resolution RAW video streams:
 
 ```bash
-# Comprime uno stream video sfruttando NVDEC/CUDA
+# Compress video stream with NVDEC/CUDA acceleration
 python -m src.kolmox.cli.main compress-video "input_video.mp4" "output_stream.kmxv" --max-frames 1000
 
-# Decomprime il container ripristinando il flusso RAW bit-exact
+# Decompress container restoring bit-exact RAW stream
 python -m src.kolmox.cli.main decompress-video "output_stream.kmxv" "restored_stream.raw"
 ```
 
-### Compressione File Generica e Pipeline Strutturata
+### Generic File Compression & Structural Pipeline
 
 ```bash
-# Compressione file generica
+# Generic file compression
 python -m src.kolmox.cli.main compress "dataset.csv" "dataset.kmx" -l 19
 
-# Decompressione
+# Decompression
 python -m src.kolmox.cli.main decompress "dataset.kmx" "restored.csv"
 ```
 
 ---
 
-## 🧪 Test Suite & Validazione
+## 🧪 Test Suite & Validation
 
-Esegui l'intera suite di test unitari con validazione bit-exact:
+Run the full unit test suite with bit-exact verification:
 
 ```bash
 pytest tests/ -v
 ```
 
-Esegui la suite di benchmark comparativi:
+Run the real-world benchmark suite:
 
 ```bash
 python benchmarks/real_world_bench.py
@@ -91,6 +91,6 @@ python benchmarks/real_world_bench.py
 
 ---
 
-## 📄 Licenza
+## 📄 License
 
-Distribuito sotto licenza **MIT**. Consulta il file [LICENSE](LICENSE) per ulteriori dettagli.
+Distributed under the **MIT** License. See [LICENSE](LICENSE) for details.
