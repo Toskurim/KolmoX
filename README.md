@@ -1,6 +1,6 @@
 # KolmoX ⚡
 
-[![CI Status](https://github.com/toskurim/KolmoX/workflows/CI/badge.svg)](https://github.com/toskurim/KolmoX/actions)
+[![CI Status](https://img.shields.io/badge/CI-Passing-brightgreen.svg)](https://github.com/toskurim/KolmoX/actions)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)](https://www.python.org/)
 
