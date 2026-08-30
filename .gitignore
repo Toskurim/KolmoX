@@ -13,3 +13,7 @@ benchmarks/datasets/*
 *.bin
 .vscode/
 .idea/
+
+*.mp4
+*.kmxv
+output_*
