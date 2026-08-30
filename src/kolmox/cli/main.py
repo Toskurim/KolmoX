@@ -1,5 +1,5 @@
 ﻿"""
-KolmoX - Unified CLI Auto-Dispatcher with Parallel Multi-Processing & Telemetry
+KolmoX - Unified CLI Auto-Dispatcher with Multi-CAD (OBJ/STL/STEP), Video & Parallel Engine
 """
 
 import argparse
@@ -15,6 +15,7 @@ from kolmox.engines.video_stream import VideoStreamEngine
 from kolmox.core.chunked import ChunkedPipelineEngine, CHUNKED_MAGIC
 
 VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".webm"}
+CAD_EXTS = {".obj", ".stl", ".step", ".stp"}
 PARALLEL_THRESHOLD_BYTES = 32 * 1024 * 1024  # 32 MB
 console = Console()
 
@@ -51,7 +52,38 @@ def auto_compress(input_path: str, output_path: str, level: int, parallel: bool 
         VideoStreamEngine.compress_video_stream(input_path, output_path)
         return
 
-    # Routing to Parallel Chunked Engine for large payloads or explicit flag
+    with open(input_path, "rb") as f:
+        raw_data = f.read()
+
+    # CAD / Mesh Dispatches
+    cad_type = None
+    if ext == ".stl" or MeshCADEngine.is_stl(raw_data):
+        cad_type = "STL"
+        header_tag = b"KSTL"
+        tpl, geom = MeshCADEngine.transpose_stl_binary(raw_data)
+    elif ext in {".step", ".stp"} or MeshCADEngine.is_step(raw_data):
+        cad_type = "STEP"
+        header_tag = b"KSTP"
+        tpl, geom = MeshCADEngine.transpose_step(raw_data)
+    elif ext == ".obj" or MeshCADEngine.is_obj_mesh(raw_data):
+        cad_type = "OBJ"
+        header_tag = b"KCAD"
+        tpl, geom = MeshCADEngine.transpose_mesh(raw_data)
+
+    if cad_type:
+        if not quiet:
+            console.print(f"[bold yellow][Auto-Dispatch][/bold yellow] Detected [cyan]{cad_type}[/cyan] CAD geometry. Routing to Parametric CAD Engine...")
+        intermediate = header_tag + len(tpl).to_bytes(4, "big") + tpl + geom
+        pipeline = KolmoXPipeline(compression_level=level)
+        compressed = pipeline.compress_bytes(intermediate)
+        with open(output_path, "wb") as out:
+            out.write(compressed)
+        elapsed = time.perf_counter() - start_time
+        if not quiet:
+            render_summary_table(f"CAD ({cad_type})", input_path, output_path, file_size, len(compressed), elapsed)
+        return
+
+    # Routing to Parallel Chunked Engine
     if parallel or file_size >= PARALLEL_THRESHOLD_BYTES:
         if not quiet:
             console.print(f"[bold yellow][Auto-Dispatch][/bold yellow] Routing to Parallel Multi-Core Engine ({file_size / (1024*1024):.1f} MB)...")
@@ -59,23 +91,6 @@ def auto_compress(input_path: str, output_path: str, level: int, parallel: bool 
         elapsed = time.perf_counter() - start_time
         if not quiet:
             render_summary_table("Parallel Multi-Core", input_path, output_path, orig_s, comp_s, elapsed)
-        return
-
-    with open(input_path, "rb") as f:
-        raw_data = f.read()
-
-    if ext == ".obj" or MeshCADEngine.is_obj_mesh(raw_data):
-        if not quiet:
-            console.print("[bold yellow][Auto-Dispatch][/bold yellow] Detected 3D Mesh / CAD geometry. Routing to MeshCAD Engine...")
-        template, geom = MeshCADEngine.transpose_mesh(raw_data)
-        intermediate = b"KCAD" + len(template).to_bytes(4, "big") + template + geom
-        pipeline = KolmoXPipeline(compression_level=level)
-        compressed = pipeline.compress_bytes(intermediate)
-        with open(output_path, "wb") as out:
-            out.write(compressed)
-        elapsed = time.perf_counter() - start_time
-        if not quiet:
-            render_summary_table("3D Mesh CAD", input_path, output_path, file_size, len(compressed), elapsed)
         return
 
     if not quiet:
@@ -102,7 +117,6 @@ def auto_decompress(input_path: str, output_path: str, workers: int = None, quie
     with open(input_path, "rb") as f:
         magic_check = f.read(4)
 
-    # Check for Chunked V2 Container
     if magic_check == CHUNKED_MAGIC:
         if not quiet:
             console.print("[bold yellow][Auto-Dispatch][/bold yellow] Detected Parallel KMX2 Container. Decompressing concurrently...")
@@ -119,19 +133,25 @@ def auto_decompress(input_path: str, output_path: str, workers: int = None, quie
     pipeline = KolmoXPipeline()
     decompressed = pipeline.decompress_bytes(compressed)
 
-    if decompressed.startswith(b"KCAD"):
-        if not quiet:
-            console.print("[bold yellow][Auto-Dispatch][/bold yellow] Detected KCAD payload. Reconstructing 3D Mesh...")
-        template_len = int.from_bytes(decompressed[4:8], "big")
-        template = decompressed[8:8 + template_len]
-        geom = decompressed[8 + template_len:]
-        restored = MeshCADEngine.untranspose_mesh(template, geom)
-        with open(output_path, "wb") as out:
-            out.write(restored)
-        elapsed = time.perf_counter() - start_time
-        if not quiet:
-            render_summary_table("CAD Decompress", input_path, output_path, len(compressed), len(restored), elapsed)
-        return
+    # CAD Container Detection
+    for tag, cad_name, handler in [
+        (b"KCAD", "OBJ", MeshCADEngine.untranspose_mesh),
+        (b"KSTL", "STL", MeshCADEngine.untranspose_stl_binary),
+        (b"KSTP", "STEP", MeshCADEngine.untranspose_step),
+    ]:
+        if decompressed.startswith(tag):
+            if not quiet:
+                console.print(f"[bold yellow][Auto-Dispatch][/bold yellow] Detected [cyan]{cad_name}[/cyan] CAD payload. Reconstructing...")
+            tpl_len = int.from_bytes(decompressed[4:8], "big")
+            tpl = decompressed[8:8 + tpl_len]
+            geom = decompressed[8 + tpl_len:]
+            restored = handler(tpl, geom)
+            with open(output_path, "wb") as out:
+                out.write(restored)
+            elapsed = time.perf_counter() - start_time
+            if not quiet:
+                render_summary_table(f"CAD Decompress ({cad_name})", input_path, output_path, len(compressed), len(restored), elapsed)
+            return
 
     with open(output_path, "wb") as out:
         out.write(decompressed)
