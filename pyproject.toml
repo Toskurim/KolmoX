@@ -1,33 +1,30 @@
-﻿[build-system]
+[build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "kolmox"
-version = "1.0.0"
+version = "1.1.0"
 authors = [
-  { name="Toskurim", email="toskurim@gmail.com" },
+  { name = "Toskurim", email = "toskurim@gmail.com" }
 ]
-description = "High-Performance Bit-Exact Compression Framework combining structural domain preconditioning and heuristic synthesis."
+description = "High-Performance Bit-Exact Compression Framework"
 readme = "README.md"
 requires-python = ">=3.10"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
     "Operating System :: OS Independent",
-    "Topic :: System :: Archiving :: Compression",
-    "Topic :: Scientific/Engineering",
+    "Topic :: System :: Archiving :: Compression"
 ]
 dependencies = [
     "zstandard>=0.22.0",
     "numpy>=1.24.0",
     "requests>=2.31.0",
-    "rich>=13.7.0",
+    "rich>=13.7.0"
 ]
 
 [project.scripts]
 kolmox = "kolmox.cli.main:main"
 
 [project.urls]
-"Homepage" = "https://github.com/Toskurim/KolmoX"
-"Bug Tracker" = "https://github.com/Toskurim/KolmoX/issues"
+Homepage = "https://github.com/Toskurim/KolmoX"

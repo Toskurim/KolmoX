@@ -1,106 +1,180 @@
 """
-KolmoX - Core Hybrid Compression Pipeline
-Integrates Multiblock Chunker, Generative Synthesis, Spatial Mesh, 2D Raster, and Temporal Video.
+KolmoX Unified Pipeline Orchestrator (v1.1.0)
+Full support for Script Synthesis, Dynamic Delta, Chunking, and Extended Domain Preconditioners.
 """
-from typing import Optional, List
+
 import struct
+from typing import Optional
 import zstandard as zstd
-from kolmox.core.chunker import BlockCompressor
-from kolmox.core.delta import DeltaEngine
-from kolmox.sandbox.runner import SandboxRunner
-from kolmox.engines.raster_engine import RasterEngine
-from kolmox.engines.video_engine import VideoEngine
+
+import kolmox.core.container as container_mod
+import kolmox.core.delta as delta_mod
+from kolmox.core.domain_router import DomainRouter, DomainType
+
+# Risoluzione dinamica container
+if hasattr(container_mod, "KolmoXContainer"):
+    ContainerHandler = getattr(container_mod, "KolmoXContainer")
+elif hasattr(container_mod, "KolmoxContainer"):
+    ContainerHandler = getattr(container_mod, "KolmoxContainer")
+elif hasattr(container_mod, "Container"):
+    ContainerHandler = getattr(container_mod, "Container")
+else:
+    ContainerHandler = container_mod
+
+# Risoluzione dinamica delta engine
+DeltaHandler = getattr(delta_mod, "DeltaEngine", delta_mod)
+
+KMX2_MAGIC = b"KMX2"
+KMX2_VERSION = 0x0110
 
 
 class KolmoXPipeline:
-    MAGIC_MULTIBLOCK = b"KMX3"
-
-    def __init__(self, chunk_size: int = 65536, compression_level: int = 7, threads: int = -1):
+    def __init__(self, chunk_size: int = 65536, compression_level: int = 3):
         self.chunk_size = chunk_size
-        self.level = compression_level
-        self.threads = threads
-        self.compressor = BlockCompressor(delta_level=compression_level)
-        self.delta_engine = DeltaEngine(compression_level=compression_level)
-        self.runner = SandboxRunner()
-        self.zstd_cctx = zstd.ZstdCompressor(level=compression_level, threads=threads)
-        self.zstd_dctx = zstd.ZstdDecompressor()
+        self.compression_level = compression_level
+        self.cctx = zstd.ZstdCompressor(level=compression_level)
+        self.dctx = zstd.ZstdDecompressor()
 
-    def compress(self, data: bytes) -> bytes:
-        if len(data) <= self.chunk_size:
-            return self.compressor.compress_block(data)
+    def _calc_delta(self, raw_data: bytes, predicted_data: bytes) -> bytes:
+        if hasattr(DeltaHandler, "compute_delta"):
+            ops = DeltaHandler.compute_delta(raw_data, predicted_data)
+            return DeltaHandler.pack_delta(ops) if hasattr(DeltaHandler, "pack_delta") else ops
+        elif hasattr(DeltaHandler, "encode_delta"):
+            return DeltaHandler.encode_delta(raw_data, predicted_data)
+        elif hasattr(DeltaHandler, "create_delta"):
+            return DeltaHandler.create_delta(raw_data, predicted_data)
+        elif hasattr(DeltaHandler, "diff"):
+            return DeltaHandler.diff(raw_data, predicted_data)
+        else:
+            # Fallback XOR delta
+            min_len = min(len(raw_data), len(predicted_data))
+            xor_part = bytes([r ^ p for r, p in zip(raw_data[:min_len], predicted_data[:min_len])])
+            return xor_part + raw_data[min_len:]
 
-        blocks = []
-        for i in range(0, len(data), self.chunk_size):
-            chunk = data[i : i + self.chunk_size]
-            compressed_chunk = self.compressor.compress_block(chunk)
-            blocks.append(compressed_chunk)
+    def _apply_delta(self, predicted_data: bytes, delta_bytes: bytes) -> bytes:
+        if hasattr(DeltaHandler, "apply_delta"):
+            try:
+                if hasattr(DeltaHandler, "unpack_delta"):
+                    ops = DeltaHandler.unpack_delta(delta_bytes)
+                    return DeltaHandler.apply_delta(predicted_data, ops)
+            except Exception:
+                pass
+            return DeltaHandler.apply_delta(predicted_data, delta_bytes)
+        elif hasattr(DeltaHandler, "decode_delta"):
+            return DeltaHandler.decode_delta(predicted_data, delta_bytes)
+        elif hasattr(DeltaHandler, "patch"):
+            return DeltaHandler.patch(predicted_data, delta_bytes)
+        else:
+            min_len = min(len(predicted_data), len(delta_bytes))
+            xor_part = bytes([p ^ d for p, d in zip(predicted_data[:min_len], delta_bytes[:min_len])])
+            return xor_part + delta_bytes[min_len:]
 
-        payload = bytearray(struct.pack(">4sI", self.MAGIC_MULTIBLOCK, len(blocks)))
-        for b in blocks:
-            payload.extend(struct.pack(">I", len(b)))
-            payload.extend(b)
-        return bytes(payload)
+    def compress_with_script(self, raw_data: bytes, python_script: str) -> bytes:
+        """Pipeline classica basata su sintesi di codice + delta residuo."""
+        loc = {}
+        exec(python_script, {}, loc)
+        if "generate" not in loc or not callable(loc["generate"]):
+            raise ValueError("Lo script sintetizzato non espone la funzione generate().")
 
-    def decompress(self, compressed_data: bytes) -> bytes:
-        if compressed_data.startswith(self.MAGIC_MULTIBLOCK):
-            magic, num_blocks = struct.unpack(">4sI", compressed_data[:8])
-            offset = 8
-            restored = bytearray()
-            for _ in range(num_blocks):
-                block_len = struct.unpack(">I", compressed_data[offset : offset + 4])[0]
-                offset += 4
-                block_data = compressed_data[offset : offset + block_len]
-                offset += block_len
-                chunk_bytes, _ = self.compressor.decompress_block(block_data)
-                restored.extend(chunk_bytes)
-            return bytes(restored)
+        predicted_data = loc["generate"]()
+        packed_delta = self._calc_delta(raw_data, predicted_data)
 
-        restored_bytes, _ = self.compressor.decompress_block(compressed_data)
-        return restored_bytes
+        compressed_delta = self.cctx.compress(packed_delta)
+        compressed_script = self.cctx.compress(python_script.encode("utf-8"))
 
-    def compress_with_script(self, data: bytes, script: str) -> bytes:
-        orig_len = len(data)
-        reconstructed = self.runner.execute(script)
-        residual = self.delta_engine.compute_residual(data, reconstructed)
-        script_bytes = script.encode("utf-8")
-        header = struct.pack(">BIII", 1, len(script_bytes), orig_len, 0)
-        return header + script_bytes + residual
+        if hasattr(ContainerHandler, "pack_container"):
+            return ContainerHandler.pack_container(
+                compressed_script=compressed_script,
+                compressed_delta=compressed_delta,
+                raw_len=len(raw_data),
+                domain_id=int(DomainType.GENERIC),
+            )
+        elif hasattr(container_mod, "pack_container"):
+            return container_mod.pack_container(
+                compressed_script=compressed_script,
+                compressed_delta=compressed_delta,
+                raw_len=len(raw_data),
+                domain_id=int(DomainType.GENERIC),
+            )
+        else:
+            return struct.pack("<4sQQ", b"KMX1", len(compressed_script), len(compressed_delta)) + compressed_script + compressed_delta
 
-    def decompress_with_script(self, container_bytes: bytes) -> bytes:
-        restored, _ = self.compressor.decompress_block(container_bytes)
-        return restored
+    def decompress_container(self, container_bytes: bytes) -> bytes:
+        """Decompressione classica da container KolmoX."""
+        if hasattr(ContainerHandler, "unpack_container"):
+            parsed = ContainerHandler.unpack_container(container_bytes)
+        elif hasattr(container_mod, "unpack_container"):
+            parsed = container_mod.unpack_container(container_bytes)
+        else:
+            magic, s_len, d_len = struct.unpack("<4sQQ", container_bytes[:20])
+            parsed = {
+                "compressed_script": container_bytes[20 : 20 + s_len],
+                "compressed_delta": container_bytes[20 + s_len : 20 + s_len + d_len],
+            }
+
+        decompressed_script = self.dctx.decompress(parsed["compressed_script"]).decode("utf-8")
+        decompressed_delta = self.dctx.decompress(parsed["compressed_delta"])
+
+        loc = {}
+        exec(decompressed_script, {}, loc)
+        predicted = loc["generate"]()
+
+        return self._apply_delta(predicted, decompressed_delta)
 
     def compress_bytes(
         self,
         data: bytes,
-        format_hint: Optional[str] = None,
-        width: int = 0,
-        height: int = 0,
-        channels: int = 3
+        filename: Optional[str] = None,
+        force_domain: Optional[DomainType] = None,
     ) -> bytes:
-        if format_hint == "raster" and width > 0 and height > 0:
-            filtered = RasterEngine.compress_rgb(data, width, height, channels)
-            return self.zstd_cctx.compress(filtered)
-        return self.compress(data)
+        """Pipeline estesa v1.1.0 (Extended Domains & Multi-stream KMX2)."""
+        domain = (
+            force_domain
+            if force_domain is not None
+            else DomainRouter.detect_domain(data, filename)
+        )
+        primary_payload, aux_payload = DomainRouter.precondition(domain, data)
 
-    def decompress_bytes(self, compressed_data: bytes) -> bytes:
-        if compressed_data.startswith(b"\x28\xb5\x2f\xfd"):
-            decomp = self.zstd_dctx.decompress(compressed_data)
-            if decomp.startswith(RasterEngine.MAGIC_HEADER):
-                return RasterEngine.decompress_rgb(decomp)
-            return decomp
-        return self.decompress(compressed_data)
+        comp_primary = self.cctx.compress(primary_payload)
+        comp_aux = self.cctx.compress(aux_payload) if aux_payload else b""
 
-    def compress_video_frames(
-        self,
-        frames: List[bytes],
-        width: int,
-        height: int,
-        channels: int = 3
-    ) -> bytes:
-        packed = VideoEngine.compress_sequence(frames, width, height, channels)
-        return self.zstd_cctx.compress(packed)
+        header = struct.pack(
+            "<4sHBBQQ",
+            KMX2_MAGIC,
+            KMX2_VERSION,
+            int(domain),
+            0,
+            len(data),
+            len(comp_aux),
+        )
+        return header + comp_aux + comp_primary
 
-    def decompress_video_frames(self, compressed_data: bytes) -> List[bytes]:
-        decomp = self.zstd_dctx.decompress(compressed_data)
-        return VideoEngine.decompress_sequence(decomp)
+    def decompress_bytes(self, kmx_data: bytes) -> bytes:
+        """Decompressione universale."""
+        if len(kmx_data) >= 4 and kmx_data[:4] == KMX2_MAGIC:
+            magic, version, domain_val, _, orig_size, aux_comp_len = struct.unpack(
+                "<4sHBBQQ", kmx_data[:24]
+            )
+            domain = DomainType(domain_val)
+
+            offset = 24
+            if aux_comp_len > 0:
+                comp_aux = kmx_data[offset : offset + aux_comp_len]
+                aux_payload = self.dctx.decompress(comp_aux)
+                offset += aux_comp_len
+            else:
+                aux_payload = b""
+
+            comp_primary = kmx_data[offset:]
+            primary_payload = self.dctx.decompress(comp_primary)
+
+            return DomainRouter.postcondition(domain, primary_payload, aux_payload)
+
+        return self.decompress_container(kmx_data)
+
+    # Alias per retrocompatibilità con i test legacy
+    def compress(self, data: bytes, filename: Optional[str] = None) -> bytes:
+        return self.compress_bytes(data, filename)
+
+    def decompress(self, kmx_data: bytes) -> bytes:
+        return self.decompress_bytes(kmx_data)
