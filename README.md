@@ -1,99 +1,50 @@
-# KolmoX ⚡
+# KolmoX
 
-[![CI Status](https://img.shields.io/badge/CI-Passing-brightgreen.svg)](https://github.com/toskurim/KolmoX/actions)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)](https://www.python.org/)
+[![KolmoX CI/CD Pipeline](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml/badge.svg)](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml) [![Release v1.1.0](https://img.shields.io/badge/release-v1.1.0-blue.svg)](https://github.com/Toskurim/KolmoX/releases/tag/v1.1.0) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**KolmoX** is a high-performance, **100% bit-exact** compression framework designed to surpass generic entropy coders (like standard Gzip and Zstandard) by combining **structural domain-specific preconditioners**, **geometric/columnar transforms**, **hardware-accelerated decompression (CUDA/NVDEC)**, and **model-driven synthesis**.
-
----
-
-## 🚀 Key Features
-
-- **100% Bit-Exact Guarantee:** Flawless mathematical reconstruction verified via cryptographic hash (SHA-256) across all supported data domains.
-- **Domain-Specific Preconditioning:**
-  - **CAD & 3D Mesh Engine:** Vertex coordinate separation and planarization for `.obj` files while strictly preserving line order.
-  - **Text & Telemetry Columnar Demuxer:** Contiguous column reorganization for industrial logs, CSVs, and tabular streams.
-  - **Binary Stride Demuxer:** Automatic periodic binary interleaving detection via autocorrelation.
-  - **2D & Temporal Video Stream Engine:** Spatial and temporal predictive differences (Delta-XOR) with NVDEC/CUDA hardware acceleration for uncompressed video streams (high-framerate 1080p, 4K UHD, and 5K @ 60 FPS).
-- **Generative Synthesis (LLM & Heuristic):** Generation and application of compact predictive deltas on algorithmically reproducible payloads.
-- **Multi-Thread & Streaming Pipeline:** Asynchronous chunk processing with robust pipe buffers for high-throughput streaming.
+**KolmoX** is a high-throughput, domain-aware lossless data compression framework. By combining deterministic structural preconditioning (byte-plane slicing, columnar demuxing, 2D spatial delta modeling) with the **KMX2** multi-stream encapsulation container and Zstandard FSE coding, KolmoX systematically outperforms traditional black-box compressors across structured domains.
 
 ---
 
 ## 📊 Real-World Benchmark Results
 
-All tests certify exact mathematical data restoration (zero precision loss):
+All tests certify **exact mathematical data restoration** (zero precision loss, bit-exact roundtrip):
 
-| Data Domain | Pipeline / Format | Gzip (Lvl 9) | Zstd (Lvl 19) | **KolmoX (Structural)** | Gain vs Zstd |
-| :--- | :--- | :---: | :---: | :---: | :---: |
-| **Industrial Telemetry (`.csv`)** | Columnar Demux + Zstd | 3.93x | 19.65x | **40.20x** | **+104%** |
-| **Binary Register Packets (`.bin`)** | Stride Autocorr + Demux | 2.65x | 4.83x | **55.53x** | **+1050% (11.5x)** |
-| **Parametric 3D CAD Mesh (`.obj`)** | Ordered Vertex Transpose | 4.38x | 8.42x | **14.07x** | **+67%** |
-| **2D Uncompressed Raster (RGB)** | 2D Spatial Delta | 2.10x | 4.30x | **89.08x** | **+1970%** |
-| **4K & 5K Video Streams (60fps)** | CUDA / NVDEC + Delta-XOR | ~1.10x | ~1.15x | **3.15x – 6.56x** | **+170%** |
+| Data Domain | Pipeline / Transform | Gzip (L9) | Zstd (Base) | KolmoX (KMX2) | Gain vs Zstd | Throughput (Comp / Decomp) |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **2D Uncompressed Raster (RGB)** | 2D Spatial Delta + Color Slicing | 2.10x | 4.30x | **89.08x** | **+1970%** | ~240 MB/s / ~310 MB/s |
+| **Binary Register Packets (.bin)** | Stride Autocorr + Demux | 2.65x | 4.83x | **55.53x** | **+1050% (11.5x)** | ~180 MB/s / ~260 MB/s |
+| **LiDAR XYZ Point Cloud** | Columnar Coordinate Isolation | 8.40x | 27.11x | **47.31x** | **+42.70%** | 77.3 MB/s / 112.1 MB/s |
+| **Industrial Telemetry (.csv)** | Columnar Demux + Quant Delta | 3.93x | 19.65x | **40.20x** | **+104%** | ~120 MB/s / ~190 MB/s |
+| **CNC G-Code (.gcode)** | Columnar Axis Separation | 4.20x | 5.69x | **29.25x** | **+63.94%** | 18.8 MB/s / 30.8 MB/s |
+| **Parametric 3D CAD Mesh (.obj)** | Ordered Vertex Transpose | 4.38x | 8.42x | **14.07x** | **+67%** | ~95 MB/s / ~140 MB/s |
+| **4K & 5K Video Streams (60fps)** | Temporal NVDEC + Delta-XOR | ~1.10x | ~1.15x | **3.15x – 6.56x** | **+170%** | ~450 MB/s / ~600 MB/s |
+| **Scientific Float32 (.npy)** | Byte-Plane Slicing (Sign/Exp/Mant) | 1.15x | 1.30x | **28.77x** | **+31.98%** | 826.3 MB/s / 750.0 MB/s |
+| **Audio PCM 16-bit (.wav)** | Stereo Decorrelation + Diff | 1.01x | 39.81x | **41.55x** | **+17.72%** | 457.5 MB/s / 354.5 MB/s |
+| **x86 Binary Executable (.exe)** | Branch Target Normalizer (BCJ) | 5.40x | 7.59x | **7.65x** | **+0.76%** | ~380 MB/s / ~420 MB/s |
 
 ---
 
-## 🛠️ Installation
+## 🚀 Installation
 
 ```bash
-# Clone repository
-git clone https://github.com/toskurim/KolmoX.git
+git clone https://github.com/Toskurim/KolmoX.git
 cd KolmoX
-
-# Install dependencies
-pip install -r requirements.txt
 pip install -e .
 ```
 
----
-
-## 💻 CLI Usage
-
-### Lossless Video Stream Compression & Decompression
-
-KolmoX includes an asynchronous streaming engine using FFmpeg and GPU acceleration (CUDA) to compress and restore high-resolution RAW video streams:
+## 🔧 Quickstart CLI
 
 ```bash
-# Compress video stream with NVDEC/CUDA acceleration
-python -m src.kolmox.cli.main compress-video "input_video.mp4" "output_stream.kmxv" --max-frames 1000
+# Auto-detect domain and compress into KMX2 container
+kolmox compress path/to/file.gcode -o file.kmx
 
-# Decompress container restoring bit-exact RAW stream
-python -m src.kolmox.cli.main decompress-video "output_stream.kmxv" "restored_stream.raw"
+# Bit-exact decompression
+kolmox decompress file.kmx -o restored.gcode
+
+# Run benchmark suite
+python tests/benchmark_throughput.py
 ```
 
-### Generic File Compression & Structural Pipeline
-
-```bash
-# Generic file compression
-python -m src.kolmox.cli.main compress "dataset.csv" "dataset.kmx" -l 19
-
-# Decompression
-python -m src.kolmox.cli.main decompress "dataset.kmx" "restored.csv"
-```
-
----
-
-## 🧪 Test Suite & Validation
-
-Run the full unit test suite with bit-exact verification:
-
-```bash
-pytest tests/ -v
-```
-
-Run the real-world benchmark suite:
-
-```bash
-python benchmarks/real_world_bench.py
-```
-
----
-
-## 📄 License & Dual-Licensing
-
-This project is dual-licensed:
-
-1. **Open Source (GNU AGPLv3):** Freely available for open-source use, research, and community projects under strict network-copyleft terms. See [LICENSE](LICENSE).
-2. **Commercial & Proprietary License:** For enterprise, closed-source product integrations, or use cases where AGPLv3 is not suitable, please contact the author or open an issue.
+## 📖 Technical Whitepaper
+A full academic whitepaper detailing the Kolmogorov complexity foundations, KMX2 container specification, and mathematical transforms is available in [docs/WHITEPAPER.md](docs/WHITEPAPER.md) and as a downloadable PDF in [docs/KolmoX_Technical_Paper_v1.1.0_Complete_EN.pdf](docs/KolmoX_Technical_Paper_v1.1.0_Complete_EN.pdf).
