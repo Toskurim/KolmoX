@@ -1,2 +1,2 @@
 [console_scripts]
-kolmox = kolmox.cli.main:cli
+kolmox = kolmox.cli.main:main
