@@ -1,21 +1,20 @@
-from setuptools import setup, find_packages
+from setuptools import setup, Extension
+from setuptools.command.build_ext import build_ext
+
+class OptionalBuildExt(build_ext):
+    def build_extension(self, ext):
+        try:
+            super().build_extension(ext)
+        except Exception as e:
+            print(f"Warning: Could not build C extension {ext.name}. Using pure-Python/NumPy fallback.")
+
+fast_ext = Extension(
+    "kolmox.core.fast_transforms",
+    sources=["src/kolmox/core/fast_transforms.c"],
+    optional=True,
+)
 
 setup(
-    name="kolmox",
-    version="0.1.0",
-    package_dir={"": "src"},
-    packages=find_packages(where="src"),
-    install_requires=[
-        "zstandard>=0.22.0",
-        "numpy>=1.24.0",
-        "requests>=2.31.0",
-        "click>=8.1.0",
-        "rich>=13.7.0",
-        "pytest>=8.0.0",
-    ],
-    entry_points={
-        "console_scripts": [
-            "kolmox=kolmox.cli.main:cli",
-        ],
-    },
+    ext_modules=[fast_ext],
+    cmdclass={"build_ext": OptionalBuildExt},
 )

@@ -1,250 +1,230 @@
 """
-KolmoX - Extended Domain Preconditioners (v1.1.0)
-Specialized bit-exact transforms for:
-1. CNC / 3D Printing G-Code (.gcode, .nc) -> Columnar Channel Separation
-2. Scientific Multidimensional Float Arrays (.npy, .fits) -> Byte-Plane Slicing
-3. Audio PCM Lossless (.wav, raw PCM) -> FLAC-style Decorrelation + Delta
-4. Point Cloud Coordinates (.xyz, .las) -> Columnar Vectorization
-5. Executable Machine Code BCJ Filter (x86/x64) -> Branch Normalization
+KolmoX Extended Domain Preconditioning Engines (v1.1.0)
+Bit-exact, high-throughput transforms with C-acceleration and NumPy fallback.
 """
 
-import re
 import struct
 import numpy as np
-from typing import Tuple
+from typing import Tuple, List
+
+try:
+    from kolmox.core import fast_transforms
+    HAS_C_EXT = True
+except ImportError:
+    HAS_C_EXT = False
 
 
-# ==========================================
-# 1. INDUSTRIAL CNC & G-CODE ENGINE
-# ==========================================
-class GCodeEngine:
-    COORD_PATTERN = re.compile(r"([XYZFE])([-+]?\d*\.?\d+)")
-
-    @staticmethod
-    def is_gcode(data: bytes) -> bool:
-        sample = data[:2048].decode("utf-8", errors="ignore").upper()
-        return ("G0" in sample or "G1" in sample or "M104" in sample) and ("X" in sample or "Y" in sample or "Z" in sample)
-
-    @staticmethod
-    def transform(data: bytes) -> Tuple[bytes, bytes]:
-        text = data.decode("utf-8", errors="replace")
-        
-        channels = {"X": [], "Y": [], "Z": [], "F": [], "E": []}
-        axis_sequence = []
-
-        def replacer(match):
-            axis = match.group(1)
-            val = match.group(2)
-            channels[axis].append(val)
-            axis_sequence.append(axis)
-            return f"{axis}\x00"
-
-        template = GCodeEngine.COORD_PATTERN.sub(replacer, text)
-        
-        payload_parts = [
-            ",".join(axis_sequence),
-            ",".join(channels["X"]),
-            ",".join(channels["Y"]),
-            ",".join(channels["Z"]),
-            ",".join(channels["F"]),
-            ",".join(channels["E"])
-        ]
-        coord_stream = "\n".join(payload_parts).encode("utf-8")
-        return template.encode("utf-8"), coord_stream
-
-    @staticmethod
-    def inverse(template_bytes: bytes, coord_bytes: bytes) -> bytes:
-        if not coord_bytes:
-            return template_bytes
-
-        template = template_bytes.decode("utf-8", errors="replace")
-        lines = coord_bytes.decode("utf-8", errors="replace").splitlines()
-        
-        if len(lines) < 6:
-            return template_bytes
-
-        axis_seq = lines[0].split(",") if lines[0] else []
-        ch_iters = {
-            "X": iter(lines[1].split(",") if lines[1] else []),
-            "Y": iter(lines[2].split(",") if lines[2] else []),
-            "Z": iter(lines[3].split(",") if lines[3] else []),
-            "F": iter(lines[4].split(",") if lines[4] else []),
-            "E": iter(lines[5].split(",") if lines[5] else []),
-        }
-
-        seq_iter = iter(axis_seq)
-        parts = template.split("\x00")
-        out = []
-
-        for i, part in enumerate(parts):
-            out.append(part)
-            if i < len(parts) - 1:
-                try:
-                    axis = next(seq_iter)
-                    val = next(ch_iters[axis])
-                    out.append(val)
-                except (StopIteration, KeyError):
-                    out.append("0.0")
-
-        return "".join(out).encode("utf-8")
-
-
-# ==========================================
-# 2. SCIENTIFIC FLOAT / MATRIX ENGINE
-# ==========================================
 class ScientificFloatEngine:
     @staticmethod
-    def transform_f32_byte_plane(data: bytes) -> bytes:
-        rem = len(data) % 4
-        clean_len = len(data) - rem
-        if clean_len == 0:
-            return data
-
-        arr = np.frombuffer(data[:clean_len], dtype=np.uint8).reshape(-1, 4)
-        transposed = arr.T.tobytes()
-        return transposed + data[clean_len:]
+    def transform_f32_byte_plane(raw_data: bytes) -> bytes:
+        num_bytes = len(raw_data)
+        if num_bytes % 4 != 0 or num_bytes == 0:
+            return raw_data
+        if HAS_C_EXT:
+            return fast_transforms.transpose_f32(raw_data)
+        arr = np.frombuffer(raw_data, dtype=np.uint8).reshape(-1, 4)
+        return arr.T.tobytes()
 
     @staticmethod
-    def inverse_f32_byte_plane(data: bytes) -> bytes:
-        rem = len(data) % 4
-        clean_len = len(data) - rem
-        if clean_len == 0:
-            return data
-
-        n_elements = clean_len // 4
-        b0 = data[0 : n_elements]
-        b1 = data[n_elements : 2 * n_elements]
-        b2 = data[2 * n_elements : 3 * n_elements]
-        b3 = data[3 * n_elements : 4 * n_elements]
-
-        arr = np.column_stack([
-            np.frombuffer(b0, dtype=np.uint8),
-            np.frombuffer(b1, dtype=np.uint8),
-            np.frombuffer(b2, dtype=np.uint8),
-            np.frombuffer(b3, dtype=np.uint8),
-        ])
-        return arr.tobytes() + data[clean_len:]
+    def inverse_f32_byte_plane(sliced_data: bytes) -> bytes:
+        num_bytes = len(sliced_data)
+        if num_bytes % 4 != 0 or num_bytes == 0:
+            return sliced_data
+        if HAS_C_EXT:
+            return fast_transforms.untranspose_f32(sliced_data)
+        n = num_bytes // 4
+        arr = np.frombuffer(sliced_data, dtype=np.uint8).reshape(4, n)
+        return arr.T.tobytes()
 
 
-# ==========================================
-# 3. AUDIO PCM LOSSLESS ENGINE (WAV / RAW)
-# ==========================================
 class AudioPCMEngine:
     @staticmethod
     def is_wav(data: bytes) -> bool:
-        return len(data) >= 44 and data[:4] == b"RIFF" and data[8:12] == b"WAVE"
+        return len(data) >= 12 and data[0:4] == b"RIFF" and data[8:12] == b"WAVE"
 
     @staticmethod
-    def transform_stereo_pcm16(data: bytes) -> Tuple[bytes, bytes]:
-        header_len = 44 if AudioPCMEngine.is_wav(data) else 0
-        header = data[:header_len]
-        pcm_bytes = data[header_len:]
+    def transform_stereo_pcm16(raw_data: bytes) -> Tuple[bytes, bytes]:
+        if AudioPCMEngine.is_wav(raw_data):
+            data_pos = raw_data.find(b"data")
+            if data_pos != -1 and len(raw_data) >= data_pos + 8:
+                data_len = struct.unpack("<I", raw_data[data_pos + 4 : data_pos + 8])[0]
+                header = raw_data[: data_pos + 8]
+                pcm = raw_data[data_pos + 8 : data_pos + 8 + data_len]
+            else:
+                header = raw_data[:44]
+                pcm = raw_data[44:]
+        else:
+            header = b""
+            pcm = raw_data
 
-        n_samples = len(pcm_bytes) // 4
-        pcm_valid = pcm_bytes[: n_samples * 4]
-        rem = pcm_bytes[n_samples * 4 :]
+        num_samples = len(pcm) // 4
+        if num_samples == 0:
+            return header, pcm
 
-        samples = np.frombuffer(pcm_valid, dtype=np.uint16).reshape(-1, 2)
-        left = samples[:, 0]
-        right = samples[:, 1]
+        samples = np.frombuffer(pcm[: num_samples * 4], dtype=np.int16).reshape(-1, 2)
+        left = samples[:, 0].astype(np.int32)
+        right = samples[:, 1].astype(np.int32)
 
-        # Decorrelazione modulare Left-Side
-        diff = (left - right).astype(np.uint16)
+        diff = (left - right).astype(np.int16)
+        delta_left = np.empty_like(left, dtype=np.int16)
+        delta_left[0] = left[0]
+        delta_left[1:] = (left[1:] - left[:-1]).astype(np.int16)
 
-        # Delta sul canale Left
-        left_delta = np.zeros_like(left)
-        left_delta[0] = left[0]
-        left_delta[1:] = left[1:] - left[:-1]
-
-        stream = np.column_stack([left_delta, diff]).tobytes() + rem
-        return header, stream
+        processed = delta_left.tobytes() + diff.tobytes()
+        return header, processed
 
     @staticmethod
-    def inverse_stereo_pcm16(header: bytes, stream: bytes) -> bytes:
-        n_samples = len(stream) // 4
-        valid_stream = stream[: n_samples * 4]
-        rem = stream[n_samples * 4 :]
+    def inverse_stereo_pcm16(header: bytes, processed: bytes) -> bytes:
+        num_samples = len(processed) // 4
+        if num_samples == 0:
+            return header + processed
 
-        samples = np.frombuffer(valid_stream, dtype=np.uint16).reshape(-1, 2)
-        left_delta = samples[:, 0]
-        diff = samples[:, 1]
+        delta_left = np.frombuffer(processed[: num_samples * 2], dtype=np.int16).astype(np.int32)
+        diff = np.frombuffer(processed[num_samples * 2 :], dtype=np.int16).astype(np.int32)
 
-        left = np.cumsum(left_delta, dtype=np.uint16)
-        right = (left - diff).astype(np.uint16)
+        left = np.cumsum(delta_left).astype(np.int16)
+        right = (left.astype(np.int32) - diff).astype(np.int16)
 
-        restored_samples = np.column_stack([left, right])
-        return header + restored_samples.tobytes() + rem
+        stereo = np.empty((num_samples, 2), dtype=np.int16)
+        stereo[:, 0] = left
+        stereo[:, 1] = right
+
+        return header + stereo.tobytes()
 
 
-# ==========================================
-# 4. GEOSPATIAL & POINT CLOUD ENGINE
-# ==========================================
-class PointCloudEngine:
+class GCodeEngine:
     @staticmethod
-    def transform_xyz_ascii(data: bytes) -> Tuple[bytes, bytes]:
-        text = data.decode("utf-8", errors="replace")
-        lines = text.splitlines()
-        xs, ys, zs = [], [], []
+    def is_gcode(data: bytes) -> bool:
+        sample = data[:1024].decode("utf-8", errors="ignore").upper()
+        return "G1 " in sample or "G0 " in sample or "M104" in sample
+
+    @staticmethod
+    def transform(raw_data: bytes) -> Tuple[bytes, bytes]:
+        lines = raw_data.split(b"\n")
+        template_lines = []
+        vals_x, vals_y, vals_z = [], [], []
 
         for line in lines:
-            parts = line.strip().split()
-            if len(parts) >= 3:
+            if line.startswith((b"G1 ", b"G0 ")):
+                parts = line.split(b" ")
+                new_parts = []
+                for p in parts:
+                    if p.startswith(b"X"):
+                        vals_x.append(p[1:])
+                        new_parts.append(b"X\x00")
+                    elif p.startswith(b"Y"):
+                        vals_y.append(p[1:])
+                        new_parts.append(b"Y\x00")
+                    elif p.startswith(b"Z"):
+                        vals_z.append(p[1:])
+                        new_parts.append(b"Z\x00")
+                    else:
+                        new_parts.append(p)
+                template_lines.append(b" ".join(new_parts))
+            else:
+                template_lines.append(line)
+
+        template = b"\n".join(template_lines)
+        coords = b"\n".join(vals_x + [b"---"] + vals_y + [b"---"] + vals_z)
+        return template, coords
+
+    @staticmethod
+    def inverse(template: bytes, coords: bytes) -> bytes:
+        if not coords:
+            return template
+        sections = coords.split(b"\n---\n")
+        vals_x = sections[0].split(b"\n") if len(sections) > 0 and sections[0] else []
+        vals_y = sections[1].split(b"\n") if len(sections) > 1 and sections[1] else []
+        vals_z = sections[2].split(b"\n") if len(sections) > 2 and sections[2] else []
+
+        ix, iy, iz = 0, 0, 0
+        lines = template.split(b"\n")
+        out_lines = []
+
+        for line in lines:
+            if b"\x00" in line:
+                parts = line.split(b" ")
+                new_parts = []
+                for p in parts:
+                    if p == b"X\x00" and ix < len(vals_x):
+                        new_parts.append(b"X" + vals_x[ix])
+                        ix += 1
+                    elif p == b"Y\x00" and iy < len(vals_y):
+                        new_parts.append(b"Y" + vals_y[iy])
+                        iy += 1
+                    elif p == b"Z\x00" and iz < len(vals_z):
+                        new_parts.append(b"Z" + vals_z[iz])
+                        iz += 1
+                    else:
+                        new_parts.append(p)
+                out_lines.append(b" ".join(new_parts))
+            else:
+                out_lines.append(line)
+
+        return b"\n".join(out_lines)
+
+
+class PointCloudEngine:
+    @staticmethod
+    def transform_xyz_ascii(raw_data: bytes) -> Tuple[bytes, bytes]:
+        lines = raw_data.split(b"\n")
+        xs, ys, zs = [], [], []
+        for line in lines:
+            parts = line.split()
+            if len(parts) == 3:
                 xs.append(parts[0])
                 ys.append(parts[1])
                 zs.append(parts[2])
-
-        payload = (",".join(xs) + "\n" + ",".join(ys) + "\n" + ",".join(zs)).encode("utf-8")
-        manifest = f"COUNT:{len(xs)}".encode("utf-8")
+        manifest = struct.pack("<I", len(xs))
+        payload = b"\n".join(xs + [b"---"] + ys + [b"---"] + zs)
         return manifest, payload
 
     @staticmethod
     def inverse_xyz_ascii(manifest: bytes, payload: bytes) -> bytes:
-        text = payload.decode("utf-8", errors="replace")
-        lines = text.splitlines()
-        if len(lines) < 3:
-            return b""
+        if len(manifest) < 4:
+            return payload
+        count = struct.unpack("<I", manifest[:4])[0]
+        sections = payload.split(b"\n---\n")
+        if len(sections) < 3:
+            return payload
+        xs = sections[0].split(b"\n")
+        ys = sections[1].split(b"\n")
+        zs = sections[2].split(b"\n")
+        out = []
+        for i in range(count):
+            out.append(xs[i] + b" " + ys[i] + b" " + zs[i])
+        return b"\n".join(out) + b"\n"
 
-        xs = lines[0].split(",") if lines[0] else []
-        ys = lines[1].split(",") if lines[1] else []
-        zs = lines[2].split(",") if lines[2] else []
 
-        n = min(len(xs), len(ys), len(zs))
-        out_lines = [f"{xs[i]} {ys[i]} {zs[i]}\n" for i in range(n)]
-        return "".join(out_lines).encode("utf-8")
-
-
-# ==========================================
-# 5. X86/X64 BCJ INSTRUCTION POINTER FILTER
-# ==========================================
 class BinaryBCJEngine:
     @staticmethod
-    def transform_x86(data: bytes) -> bytes:
-        buf = bytearray(data)
-        length = len(buf)
+    def transform_x86(raw_data: bytes) -> bytes:
+        data = bytearray(raw_data)
+        length = len(data)
         i = 0
         while i + 4 < length:
-            b = buf[i]
+            b = data[i]
             if b in (0xE8, 0xE9):
-                raw_dest = struct.unpack("<I", buf[i + 1 : i + 5])[0]
-                if raw_dest < 0x01000000:
-                    rel_dest = (raw_dest - (i + 5)) & 0xFFFFFFFF
-                    buf[i + 1 : i + 5] = struct.pack("<I", rel_dest)
-                i += 4
-            i += 1
-        return bytes(buf)
+                rel = struct.unpack("<i", data[i + 1 : i + 5])[0]
+                abs_addr = (rel + (i + 5)) & 0xFFFFFFFF
+                data[i + 1 : i + 5] = struct.pack("<I", abs_addr)
+                i += 5
+            else:
+                i += 1
+        return bytes(data)
 
     @staticmethod
-    def inverse_x86(data: bytes) -> bytes:
-        buf = bytearray(data)
-        length = len(buf)
+    def inverse_x86(transformed: bytes) -> bytes:
+        data = bytearray(transformed)
+        length = len(data)
         i = 0
         while i + 4 < length:
-            b = buf[i]
+            b = data[i]
             if b in (0xE8, 0xE9):
-                rel_dest = struct.unpack("<I", buf[i + 1 : i + 5])[0]
-                raw_dest = (rel_dest + (i + 5)) & 0xFFFFFFFF
-                if raw_dest < 0x01000000:
-                    buf[i + 1 : i + 5] = struct.pack("<I", raw_dest)
-                i += 4
-            i += 1
-        return bytes(buf)
+                abs_addr = struct.unpack("<I", data[i + 1 : i + 5])[0]
+                rel = (abs_addr - (i + 5)) & 0xFFFFFFFF
+                data[i + 1 : i + 5] = struct.pack("<i", struct.unpack("<i", struct.pack("<I", rel))[0])
+                i += 5
+            else:
+                i += 1
+        return bytes(data)
