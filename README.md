@@ -15,7 +15,7 @@
   - **CAD & 3D Mesh Engine:** Vertex coordinate separation and planarization for `.obj` files while strictly preserving line order.
   - **Text & Telemetry Columnar Demuxer:** Contiguous column reorganization for industrial logs, CSVs, and tabular streams.
   - **Binary Stride Demuxer:** Automatic periodic binary interleaving detection via autocorrelation.
-  - **2D & Temporal Video Stream Engine:** Spatial and temporal predictive differences (Delta-XOR) with NVDEC/CUDA hardware acceleration for uncompressed video streams (up to 5K @ 60 FPS).
+  - **2D & Temporal Video Stream Engine:** Spatial and temporal predictive differences (Delta-XOR) with NVDEC/CUDA hardware acceleration for uncompressed video streams (high-framerate 1080p, 4K UHD, and 5K @ 60 FPS).
 - **Generative Synthesis (LLM & Heuristic):** Generation and application of compact predictive deltas on algorithmically reproducible payloads.
 - **Multi-Thread & Streaming Pipeline:** Asynchronous chunk processing with robust pipe buffers for high-throughput streaming.
 
@@ -31,7 +31,7 @@ All tests certify exact mathematical data restoration (zero precision loss):
 | **Binary Register Packets (`.bin`)** | Stride Autocorr + Demux | 2.65x | 4.83x | **55.53x** | **+1050% (11.5x)** |
 | **Parametric 3D CAD Mesh (`.obj`)** | Ordered Vertex Transpose | 4.38x | 8.42x | **14.07x** | **+67%** |
 | **2D Uncompressed Raster (RGB)** | 2D Spatial Delta | 2.10x | 4.30x | **89.08x** | **+1970%** |
-| **5K Video Stream (5120x1440 60fps)** | CUDA / NVDEC + Delta-XOR | ~1.10x | ~1.15x | **3.15x – 6.56x** | **+170%** |
+| **4K & 5K Video Streams (60fps)** | CUDA / NVDEC + Delta-XOR | ~1.10x | ~1.15x | **3.15x – 6.56x** | **+170%** |
 
 ---
 
