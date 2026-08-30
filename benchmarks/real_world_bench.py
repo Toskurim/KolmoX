@@ -1,11 +1,18 @@
-import os
+"""
+KolmoX Real-World Benchmark Suite
+Direct domain-aware transformation vs Gzip Lvl 9 vs Zstandard Lvl 19.
+"""
 import math
 import time
 import gzip
 import zstandard as zstd
 from rich.console import Console
 from rich.table import Table
+
 from kolmox.core.pipeline import KolmoXPipeline
+from kolmox.core.mesh_cad import MeshCADEngine
+from kolmox.core.text_columnar import TextColumnarEngine
+from kolmox.core.stride import StrideEngine
 
 console = Console()
 
@@ -50,21 +57,22 @@ def create_binary_sensor_registers(num_packets=10000) -> bytes:
     return bytes(buf)
 
 
-def benchmark_payload(title: str, raw_data: bytes):
+def benchmark_payload(title: str, raw_data: bytes, domain: str, stride_len: int = 16):
     table = Table(title=f"Real-World Benchmark: {title}")
     table.add_column("Codec", style="cyan", justify="left")
     table.add_column("Original Size", justify="right")
     table.add_column("Compressed Size", justify="right")
-    table.add_column("Compression Ratio", justify="right", style="green")
+    table.add_column("Compression Ratio", justify="right", style="bold green")
     table.add_column("Decompress Time", justify="right")
 
+    orig_size = len(raw_data)
+
     # 1. Gzip Level 9
-    t0 = time.perf_counter()
     gz_data = gzip.compress(raw_data, compresslevel=9)
     t0 = time.perf_counter()
     gzip.decompress(gz_data)
-    t_gz_dec = time.perf_counter() - t0
-    table.add_row("Gzip (Lvl 9)", f"{len(raw_data):,}", f"{len(gz_data):,}", f"{len(raw_data)/len(gz_data):.2f}x", f"{t_gz_dec*1000:.2f} ms")
+    t_gz_dec = (time.perf_counter() - t0) * 1000
+    table.add_row("Gzip (Lvl 9)", f"{orig_size:,}", f"{len(gz_data):,}", f"{orig_size/len(gz_data):.2f}x", f"{t_gz_dec:.2f} ms")
 
     # 2. Zstandard Level 19
     cctx = zstd.ZstdCompressor(level=19)
@@ -72,18 +80,55 @@ def benchmark_payload(title: str, raw_data: bytes):
     zstd_data = cctx.compress(raw_data)
     t0 = time.perf_counter()
     dctx.decompress(zstd_data)
-    t_zstd_dec = time.perf_counter() - t0
-    table.add_row("Zstandard (Lvl 19)", f"{len(raw_data):,}", f"{len(zstd_data):,}", f"{len(raw_data)/len(zstd_data):.2f}x", f"{t_zstd_dec*1000:.2f} ms")
+    t_zstd_dec = (time.perf_counter() - t0) * 1000
+    table.add_row("Zstandard (Lvl 19)", f"{orig_size:,}", f"{len(zstd_data):,}", f"{orig_size/len(zstd_data):.2f}x", f"{t_zstd_dec:.2f} ms")
 
-    # 3. KolmoX
-    pipeline = KolmoXPipeline(chunk_size=65536)
-    kmx_data = pipeline.compress(raw_data)
-    t0 = time.perf_counter()
-    restored = pipeline.decompress(kmx_data)
-    t_kmx_dec = time.perf_counter() - t0
+    # 3. KolmoX Domain-Aware Structural Pipeline
+    pipeline = KolmoXPipeline(compression_level=19)
 
-    assert restored == raw_data, "Bit-exact integrity check failed!"
-    table.add_row("KolmoX", f"{len(raw_data):,}", f"{len(kmx_data):,}", f"{len(raw_data)/len(kmx_data):.2f}x", f"{t_kmx_dec*1000:.2f} ms")
+    if domain == "mesh":
+        meta_header, packed_geom = MeshCADEngine.transpose_mesh(raw_data)
+        intermediate = len(meta_header).to_bytes(4, "big") + meta_header + packed_geom
+        kmx_data = pipeline.compress_bytes(intermediate)
+        
+        t0 = time.perf_counter()
+        dec_intermediate = pipeline.decompress_bytes(kmx_data)
+        h_len = int.from_bytes(dec_intermediate[:4], "big")
+        dec_meta = dec_intermediate[4:4 + h_len]
+        dec_geom = dec_intermediate[4 + h_len:]
+        restored = MeshCADEngine.untranspose_mesh(dec_meta, dec_geom)
+        t_kmx_dec = (time.perf_counter() - t0) * 1000
+
+    elif domain == "csv":
+        header, packed_cols = TextColumnarEngine.transpose_text(raw_data, delimiter=",")
+        intermediate = len(header).to_bytes(4, "big") + header + packed_cols
+        kmx_data = pipeline.compress_bytes(intermediate)
+
+        t0 = time.perf_counter()
+        dec_intermediate = pipeline.decompress_bytes(kmx_data)
+        h_len = int.from_bytes(dec_intermediate[:4], "big")
+        dec_header = dec_intermediate[4:4 + h_len]
+        dec_cols = dec_intermediate[4 + h_len:]
+        restored = TextColumnarEngine.untranspose_text(dec_header, dec_cols, delimiter=",")
+        t_kmx_dec = (time.perf_counter() - t0) * 1000
+
+    elif domain == "stride":
+        transposed = StrideEngine.transpose(raw_data, stride_len)
+        kmx_data = pipeline.compress_bytes(transposed)
+
+        t0 = time.perf_counter()
+        dec_data = pipeline.decompress_bytes(kmx_data)
+        restored = StrideEngine.untranspose(dec_data, stride_len, orig_size)
+        t_kmx_dec = (time.perf_counter() - t0) * 1000
+
+    else:
+        kmx_data = pipeline.compress_bytes(raw_data)
+        t0 = time.perf_counter()
+        restored = pipeline.decompress_bytes(kmx_data)
+        t_kmx_dec = (time.perf_counter() - t0) * 1000
+
+    assert restored == raw_data, f"Bit-exact check failed for {title}!"
+    table.add_row("KolmoX (Structural)", f"{orig_size:,}", f"{len(kmx_data):,}", f"{orig_size/len(kmx_data):.2f}x", f"{t_kmx_dec:.2f} ms")
 
     console.print(table)
     console.print("")
@@ -91,13 +136,13 @@ def benchmark_payload(title: str, raw_data: bytes):
 
 def run_all():
     cad_data = create_realistic_cad_mesh(30000)
-    benchmark_payload("Parametric 3D CAD Mesh (.obj)", cad_data)
+    benchmark_payload("Parametric 3D CAD Mesh (.obj)", cad_data, domain="mesh")
 
     csv_data = create_industrial_telemetry_csv(25000)
-    benchmark_payload("Industrial Machine Telemetry Log (.csv)", csv_data)
+    benchmark_payload("Industrial Machine Telemetry Log (.csv)", csv_data, domain="csv")
 
     bin_data = create_binary_sensor_registers(15000)
-    benchmark_payload("Structured Binary Register Packets (.bin)", bin_data)
+    benchmark_payload("Structured Binary Register Packets (.bin)", bin_data, domain="stride", stride_len=16)
 
 
 if __name__ == "__main__":

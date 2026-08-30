@@ -1,69 +1,70 @@
 """
-KolmoX - Hardware-Aware Vectorized Temporal Video Engine
-Computes spatial + temporal differential residuals in parallel via NumPy.
+KolmoX - High-Performance Video Lossless Engine
+Optimized with in-place SIMD-vectorized NumPy XOR differentials and zero-copy byte buffers.
 """
 from typing import List
 import struct
 import numpy as np
-from concurrent.futures import ThreadPoolExecutor
 
 
 class VideoEngine:
-    MAGIC_HEADER = b"KMXV1"
+    MAGIC = b"KMXV1"
 
     @classmethod
-    def _compute_delta_pair(cls, curr: np.ndarray, prev: np.ndarray) -> bytes:
-        return np.bitwise_xor(curr, prev).tobytes()
-
-    @classmethod
-    def compress_sequence(
-        cls,
-        frames: List[bytes],
-        width: int,
-        height: int,
-        channels: int = 3,
-        workers: int = 4
-    ) -> bytes:
+    def compress_sequence(cls, frames: List[bytes], width: int, height: int, channels: int = 3) -> bytes:
+        """
+        Encodes a sequence of uncompressed RGB/RGBA frames into a contiguous bit-exact delta buffer.
+        """
         if not frames:
             return b""
 
         num_frames = len(frames)
-        frame_shape = (height, width, channels)
-        
-        np_frames = [np.frombuffer(f, dtype=np.uint8).reshape(frame_shape) for f in frames]
-        
-        header = struct.pack(">5sIIIB", cls.MAGIC_HEADER, num_frames, width, height, channels)
-        encoded_payload = bytearray(header)
-        encoded_payload.extend(np_frames[0].tobytes())
+        frame_size = width * height * channels
 
-        if num_frames > 1:
-            # Calcolo parallelo dei residui XOR
-            pairs = [(np_frames[i], np_frames[i - 1]) for i in range(1, num_frames)]
-            with ThreadPoolExecutor(max_workers=min(workers, len(pairs))) as executor:
-                deltas = list(executor.map(lambda p: cls._compute_delta_pair(p[0], p[1]), pairs))
-            
-            for d in deltas:
-                encoded_payload.extend(d)
-            
-        return bytes(encoded_payload)
+        # Buffer contiguo C-order per sfruttare istruzioni vettoriali SIMD AVX2
+        raw_buffer = np.frombuffer(b"".join(frames), dtype=np.uint8).reshape((num_frames, frame_size))
+        
+        # Buffer preallocato per i delta temporali
+        delta_buffer = np.empty_like(raw_buffer)
+        
+        # Frame 0: Keyframe intatto
+        delta_buffer[0] = raw_buffer[0]
+        
+        # Vettorizzazione SIMD in-place: Frame[i] XOR Frame[i-1]
+        np.bitwise_xor(raw_buffer[1:], raw_buffer[:-1], out=delta_buffer[1:])
+
+        header = struct.pack(">5sIII", cls.MAGIC, width, height, num_frames)
+        return header + delta_buffer.tobytes()
 
     @classmethod
-    def decompress_sequence(cls, data: bytes) -> List[bytes]:
-        magic, num_frames, width, height, channels = struct.unpack(">5sIIIB", data[:18])
-        frame_size = width * height * channels
-        frame_shape = (height, width, channels)
+    def decompress_sequence(cls, payload: bytes) -> List[bytes]:
+        """
+        Reconstructs bit-exact original frames from a delta buffer.
+        """
+        if len(payload) < 17:
+            raise ValueError("Payload too small to contain valid KolmoX video header")
+
+        magic, width, height, num_frames = struct.unpack(">5sIII", payload[:17])
+        if magic != cls.MAGIC:
+            raise ValueError("Invalid KolmoX video magic header")
+
+        frame_size = width * height * 3
+        delta_data = payload[17:]
         
-        offset = 18
-        prev_frame = np.frombuffer(data[offset : offset + frame_size], dtype=np.uint8).reshape(frame_shape).copy()
-        offset += frame_size
+        if len(delta_data) != num_frames * frame_size:
+            raise ValueError("Payload size mismatch with frame dimensions")
+
+        delta_buffer = np.frombuffer(delta_data, dtype=np.uint8).reshape((num_frames, frame_size))
         
-        restored = [prev_frame.tobytes()]
-        
-        for _ in range(1, num_frames):
-            delta = np.frombuffer(data[offset : offset + frame_size], dtype=np.uint8).reshape(frame_shape)
-            offset += frame_size
-            curr_frame = np.bitwise_xor(prev_frame, delta)
-            restored.append(curr_frame.tobytes())
-            prev_frame = curr_frame
-            
-        return restored
+        # Ricostruzione cumulativa XOR
+        restored = np.empty_like(delta_buffer)
+        restored[0] = delta_buffer[0]
+
+        for i in range(1, num_frames):
+            np.bitwise_xor(restored[i - 1], delta_buffer[i], out=restored[i])
+
+        return [restored[i].tobytes() for i in range(num_frames)]
+
+    # Alias di compatibilità
+    encode_frames = compress_sequence
+    decode_frames = decompress_sequence

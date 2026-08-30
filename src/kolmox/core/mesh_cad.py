@@ -1,10 +1,9 @@
 """
 KolmoX - Geometric 3D Mesh / CAD Pre-processor
-Applies vertex delta-prediction and coordinate plane demuxing on .obj CAD assets.
+Applies vertex delta-prediction and coordinate plane demuxing on .obj CAD assets while preserving strict line order.
 """
 
-import re
-from typing import Tuple, Optional, List
+from typing import Tuple, Optional
 
 
 class MeshCADEngine:
@@ -21,12 +20,13 @@ class MeshCADEngine:
     @staticmethod
     def transpose_mesh(data: bytes) -> Tuple[bytes, bytes]:
         """
-        Extracts vertices (v X Y Z), computes 1st-order coordinate deltas, and stores non-vertex tokens as metadata.
+        Preserva l'ordine esatto delle righe sostituendo i vertici 'v' con token segnaposto
+        ed estraendo le coordinate X, Y, Z in vettori contigui.
         """
         text = data.decode("utf-8", errors="replace")
         lines = text.splitlines(keepends=True)
 
-        meta_lines = []
+        template_lines = []
         xs, ys, zs = [], [], []
 
         for l in lines:
@@ -36,42 +36,43 @@ class MeshCADEngine:
                     xs.append(parts[1])
                     ys.append(parts[2])
                     zs.append(parts[3])
+                    # Conserva il carattere di fine riga originale
+                    nl = "\r\n" if l.endswith("\r\n") else "\n"
+                    template_lines.append(f"\x01{nl}")
                     continue
-            meta_lines.append(l)
+            template_lines.append(l)
 
-        meta_header = "".join(meta_lines).encode("utf-8")
+        template_bytes = "".join(template_lines).encode("utf-8")
 
-        # Encode coordinates as columnar contiguous arrays
         x_blob = "\n".join(xs).encode("utf-8")
         y_blob = "\n".join(ys).encode("utf-8")
         z_blob = "\n".join(zs).encode("utf-8")
 
         packed_geom = x_blob + b"\x00" + y_blob + b"\x00" + z_blob
-        return meta_header, packed_geom
+        return template_bytes, packed_geom
 
     @staticmethod
-    def untranspose_mesh(meta_header: bytes, packed_geom: bytes) -> bytes:
-        meta_text = meta_header.decode("utf-8", errors="replace")
-        meta_lines = meta_text.splitlines(keepends=True)
+    def untranspose_mesh(template_bytes: bytes, packed_geom: bytes) -> bytes:
+        """
+        Ricostruisce bit-exact l'OBJ riposizionando ciascun vertice nella sua esatta riga originale.
+        """
+        template_text = template_bytes.decode("utf-8", errors="replace")
+        template_lines = template_text.splitlines(keepends=True)
 
         x_raw, y_raw, z_raw = packed_geom.split(b"\x00")
         xs = x_raw.decode("utf-8", errors="replace").split("\n")
         ys = y_raw.decode("utf-8", errors="replace").split("\n")
         zs = z_raw.decode("utf-8", errors="replace").split("\n")
 
-        num_verts = len(xs)
         rebuilt = []
         v_idx = 0
 
-        # Detect newline style
-        nl = "\r\n" if meta_text.endswith("\r\n") else "\n"
-
-        # Re-inject non-vertex headers if present
-        for ml in meta_lines:
-            rebuilt.append(ml)
-
-        # Append all reconstructed vertices
-        for i in range(num_verts):
-            rebuilt.append(f"v {xs[i]} {ys[i]} {zs[i]}{nl}")
+        for tl in template_lines:
+            if tl.startswith("\x01"):
+                nl = "\r\n" if tl.endswith("\r\n") else "\n"
+                rebuilt.append(f"v {xs[v_idx]} {ys[v_idx]} {zs[v_idx]}{nl}")
+                v_idx += 1
+            else:
+                rebuilt.append(tl)
 
         return "".join(rebuilt).encode("utf-8")
