@@ -37,7 +37,11 @@ def auto_compress(input_path: str, output_path: str, level: int):
 
     print("[Auto-Dispatch] Routing to Multi-Domain Structural Pipeline...")
     pipeline = KolmoXPipeline(compression_level=level)
-    pipeline.compress_file(input_path, output_path)
+    compressed = pipeline.compress_bytes(raw_data)
+    with open(output_path, "wb") as out:
+        out.write(compressed)
+    ratio = len(raw_data) / max(1, len(compressed))
+    print(f"[KolmoX] File compressed: {len(raw_data)} -> {len(compressed)} bytes ({ratio:.2f}x)")
 
 
 def auto_decompress(input_path: str, output_path: str):
