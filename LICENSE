@@ -1,7 +1,21 @@
+KolmoX Dual Licensing Agreement
+============================
+
+KolmoX is dual-licensed under:
+
+1. GNU Affero General Public License v3.0 (AGPLv3) for open-source use.
+2. A separate Commercial / Enterprise License for proprietary and closed-source integrations.
+
+Contact: toskurim@gmail.com for commercial licensing inquiries.
+
+----------------------------------------
 GNU AFFERO GENERAL PUBLIC LICENSE
 Version 3, 19 November 2007
 
-Copyright (C) 2026 toskurim
+Copyright (C) 2026 Toskurim
+
+Everyone is permitted to copy and distribute verbatim
+copies of this license document, but changing it is not allowed.
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
@@ -10,13 +24,5 @@ the Free Software Foundation, either version 3 of the License, or
 
 This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
----
-
-DUAL LICENSING NOTICE
-For commercial licensing options or proprietary integrations without AGPLv3 copyleft obligations, please open an issue on the repository.

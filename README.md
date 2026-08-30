@@ -1,6 +1,6 @@
 # KolmoX
 
-[![KolmoX CI/CD Pipeline](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml/badge.svg)](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml) [![Release v1.1.0](https://img.shields.io/badge/release-v1.1.0-blue.svg)](https://github.com/Toskurim/KolmoX/releases/tag/v1.1.0) [![License: GPLv3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+[![KolmoX CI/CD Pipeline](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml/badge.svg)](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml) [![Release v1.1.0](https://img.shields.io/badge/release-v1.1.0-blue.svg)](https://github.com/Toskurim/KolmoX/releases/tag/v1.1.0) [![License: AGPLv3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE) [![Dual License: Commercial](https://img.shields.io/badge/License-Commercial-orange.svg)](#-license)
 
 **KolmoX** is a next-generation, high-throughput lossless data compression architecture. While traditional compressors (such as Gzip, LZMA, and standalone Zstd) treat inputs as opaque 1D byte streams, KolmoX employs a two-stage pipeline based on **Kolmogorov Structural Preconditioning**:
 
@@ -46,7 +46,7 @@ kolmox compress path/to/file.gcode -o file.kmx
 # Bit-exact decompression
 kolmox decompress file.kmx -o restored.gcode
 
-## Run throughput benchmark suite
+# Run throughput benchmark suite
 python tests/benchmark_throughput.py
 ```
 
@@ -54,4 +54,6 @@ python tests/benchmark_throughput.py
 A full academic whitepaper detailing the Kolmogorov complexity foundations, KMX2 container specification, and mathematical transforms is available in [docs/WHITEPAPER.md](docs/WHITEPAPER.md) and as a downloadable PDF in [docs/KolmoX_Technical_Paper_v1.1.0_Complete_EN.pdf](docs/KolmoX_Technical_Paper_v1.1.0_Complete_EN.pdf).
 
 ## 📜 License
-This project is licensed under the GNU General Public License v3.0 (GPLv3) - see the [LICENSE](LICENSE) file for details.
+KolmoX is dual-licensed:
+* **Open Source:** [GNU Affero General Public License v3.0 (AGPLv3)](LICENSE).
+* **Commercial & Enterprise:** For proprietary software integration without AGPLv3 copyleft obligations, contact `toskurim@gmail.com`.
