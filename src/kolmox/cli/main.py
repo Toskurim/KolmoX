@@ -1,5 +1,5 @@
 ﻿"""
-KolmoX - Unified CLI Auto-Dispatcher with Rich Telemetry
+KolmoX - Unified CLI Auto-Dispatcher with Parallel Multi-Processing & Telemetry
 """
 
 import argparse
@@ -8,14 +8,14 @@ import sys
 import time
 from rich.console import Console
 from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TransferSpeedColumn
-from rich.panel import Panel
 
 from kolmox.core.pipeline import KolmoXPipeline
 from kolmox.core.mesh_cad import MeshCADEngine
 from kolmox.engines.video_stream import VideoStreamEngine
+from kolmox.core.chunked import ChunkedPipelineEngine, CHUNKED_MAGIC
 
 VIDEO_EXTS = {".mp4", ".mkv", ".avi", ".mov", ".webm"}
+PARALLEL_THRESHOLD_BYTES = 32 * 1024 * 1024  # 32 MB
 console = Console()
 
 
@@ -40,8 +40,9 @@ def render_summary_table(action: str, in_path: str, out_path: str, orig_size: in
     console.print(table)
 
 
-def auto_compress(input_path: str, output_path: str, level: int, quiet: bool = False):
+def auto_compress(input_path: str, output_path: str, level: int, parallel: bool = False, workers: int = None, quiet: bool = False):
     start_time = time.perf_counter()
+    file_size = os.path.getsize(input_path)
     _, ext = os.path.splitext(input_path.lower())
 
     if ext in VIDEO_EXTS:
@@ -50,9 +51,18 @@ def auto_compress(input_path: str, output_path: str, level: int, quiet: bool = F
         VideoStreamEngine.compress_video_stream(input_path, output_path)
         return
 
+    # Routing to Parallel Chunked Engine for large payloads or explicit flag
+    if parallel or file_size >= PARALLEL_THRESHOLD_BYTES:
+        if not quiet:
+            console.print(f"[bold yellow][Auto-Dispatch][/bold yellow] Routing to Parallel Multi-Core Engine ({file_size / (1024*1024):.1f} MB)...")
+        orig_s, comp_s = ChunkedPipelineEngine.compress_large_file(input_path, output_path, level=level, max_workers=workers)
+        elapsed = time.perf_counter() - start_time
+        if not quiet:
+            render_summary_table("Parallel Multi-Core", input_path, output_path, orig_s, comp_s, elapsed)
+        return
+
     with open(input_path, "rb") as f:
         raw_data = f.read()
-    orig_len = len(raw_data)
 
     if ext == ".obj" or MeshCADEngine.is_obj_mesh(raw_data):
         if not quiet:
@@ -65,7 +75,7 @@ def auto_compress(input_path: str, output_path: str, level: int, quiet: bool = F
             out.write(compressed)
         elapsed = time.perf_counter() - start_time
         if not quiet:
-            render_summary_table("3D Mesh CAD", input_path, output_path, orig_len, len(compressed), elapsed)
+            render_summary_table("3D Mesh CAD", input_path, output_path, file_size, len(compressed), elapsed)
         return
 
     if not quiet:
@@ -76,10 +86,10 @@ def auto_compress(input_path: str, output_path: str, level: int, quiet: bool = F
         out.write(compressed)
     elapsed = time.perf_counter() - start_time
     if not quiet:
-        render_summary_table("Generic/Tabular", input_path, output_path, orig_len, len(compressed), elapsed)
+        render_summary_table("Generic/Tabular", input_path, output_path, file_size, len(compressed), elapsed)
 
 
-def auto_decompress(input_path: str, output_path: str, quiet: bool = False):
+def auto_decompress(input_path: str, output_path: str, workers: int = None, quiet: bool = False):
     start_time = time.perf_counter()
     _, ext = os.path.splitext(input_path.lower())
 
@@ -87,6 +97,20 @@ def auto_decompress(input_path: str, output_path: str, quiet: bool = False):
         if not quiet:
             console.print("[bold yellow][Auto-Dispatch][/bold yellow] Detected KolmoX Video Container. Routing to Video Decoder...")
         VideoStreamEngine.decompress_video_stream(input_path, output_path)
+        return
+
+    with open(input_path, "rb") as f:
+        magic_check = f.read(4)
+
+    # Check for Chunked V2 Container
+    if magic_check == CHUNKED_MAGIC:
+        if not quiet:
+            console.print("[bold yellow][Auto-Dispatch][/bold yellow] Detected Parallel KMX2 Container. Decompressing concurrently...")
+        in_size = os.path.getsize(input_path)
+        restored_len = ChunkedPipelineEngine.decompress_large_file(input_path, output_path, max_workers=workers)
+        elapsed = time.perf_counter() - start_time
+        if not quiet:
+            render_summary_table("Parallel KMX2 Decompress", input_path, output_path, in_size, restored_len, elapsed)
         return
 
     with open(input_path, "rb") as f:
@@ -128,12 +152,15 @@ def main():
     c_parser.add_argument("input", help="Input file path")
     c_parser.add_argument("output", help="Output file path")
     c_parser.add_argument("-l", "--level", type=int, default=19, help="Compression level (1-22)")
+    c_parser.add_argument("-p", "--parallel", action="store_true", help="Force parallel chunked multi-core compression")
+    c_parser.add_argument("-w", "--workers", type=int, default=None, help="Max parallel worker processes")
     c_parser.add_argument("-q", "--quiet", action="store_true", help="Suppress telemetry output")
 
     # Unified Decompress
     d_parser = subparsers.add_parser("decompress", help="Auto-detect and decompress any KolmoX container")
     d_parser.add_argument("input", help="Input KolmoX file path")
     d_parser.add_argument("output", help="Output restored file path")
+    d_parser.add_argument("-w", "--workers", type=int, default=None, help="Max parallel worker processes")
     d_parser.add_argument("-q", "--quiet", action="store_true", help="Suppress telemetry output")
 
     # Explicit Video Commands
@@ -149,9 +176,9 @@ def main():
     args = parser.parse_args()
 
     if args.command == "compress":
-        auto_compress(args.input, args.output, args.level, quiet=args.quiet)
+        auto_compress(args.input, args.output, args.level, parallel=args.parallel, workers=args.workers, quiet=args.quiet)
     elif args.command == "decompress":
-        auto_decompress(args.input, args.output, quiet=args.quiet)
+        auto_decompress(args.input, args.output, workers=args.workers, quiet=args.quiet)
     elif args.command == "compress-video":
         VideoStreamEngine.compress_video_stream(args.input, args.output, max_frames=args.max_frames)
     elif args.command == "decompress-video":
