@@ -2,11 +2,11 @@
 
 [![KolmoX CI/CD Pipeline](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml/badge.svg)](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml) [![Release v1.1.0](https://img.shields.io/badge/release-v1.1.0-blue.svg)](https://github.com/Toskurim/KolmoX/releases/tag/v1.1.0) [![License: AGPLv3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE) [![Dual License: Commercial](https://img.shields.io/badge/License-Commercial-orange.svg)](#-license)
 
-**KolmoX** is a next-generation, high-throughput lossless data compression architecture. While traditional compressors (such as Gzip, LZMA, and standalone Zstd) treat inputs as opaque 1D byte streams, KolmoX employs a two-stage pipeline based on **Kolmogorov Structural Preconditioning**:
+**KolmoX** is an enterprise-grade, high-throughput lossless data compression framework. While traditional compressors (such as Gzip, LZMA, and standalone Zstd) treat inputs as opaque 1D byte streams, KolmoX employs a two-stage pipeline based on **Kolmogorov Structural Preconditioning**:
 
-1. **Domain-Aware Structural Transformations:** Automatically detects data topology and applies deterministic, bit-exact transforms (e.g., IEEE-754 float32 byte-plane slicing, CNC G-Code axis isolation, stereo PCM decorrelation, 2D spatial delta modeling, and x86 BCJ branch normalization) to eliminate correlation entropy.
+1. **Domain-Aware Structural Transformations:** Automatically detects data topology and applies deterministic, bit-exact transforms (IEEE-754 float32 byte-plane slicing, CNC G-Code axis isolation, stereo PCM decorrelation, 2D spatial delta modeling, and x86 BCJ branch normalization) to eliminate correlation entropy.
 2. **KMX2 Multi-Stream Container:** Encapsulates primary and auxiliary streams into a 24-byte fixed-header format with high-speed Zstandard FSE entropy coding.
-3. **High-Performance Execution:** Features C-accelerated transposition kernels (up to 826+ MB/s), a bounded-RAM streaming engine for multi-GB files, and a standalone C-ABI (`include/kolmox.h`) for direct C/C++/Rust integration.
+3. **High-Performance & Streaming:** Features C-accelerated transposition kernels (up to 826+ MB/s), a constant-memory chunked streaming engine (`KolmoXStreamer`) for multi-GB workloads, and a standalone C-ABI (`include/kolmox.h`) with CMake support.
 
 ---
 
@@ -29,13 +29,25 @@ All tests certify **exact mathematical data restoration** (zero precision loss, 
 
 ---
 
-## 🚀 Installation
+## 🚀 Installation & Setup
 
 ```bash
+# Clone the repository
 git clone https://github.com/Toskurim/KolmoX.git
 cd KolmoX
+
+# Install Python package in editable mode (with C-extension)
+pip install -r requirements.txt
 pip install -e .
 ```
+
+## ⚙️ CMake Standalone C-Library Build
+For direct C/C++/Rust integration without Python:
+```bash
+cmake -B build
+cmake --build build --config Release
+```
+This generates `libkolmox.so` (or `kolmox.dll` / `libkolmox.dylib`) using the public C-ABI defined in `include/kolmox.h`.
 
 ## 🔧 Quickstart CLI
 
@@ -48,6 +60,24 @@ kolmox decompress file.kmx -o restored.gcode
 
 # Run throughput benchmark suite
 python tests/benchmark_throughput.py
+```
+
+## 🔄 Constant-Memory Streaming API
+For multi-Gigabyte files, KolmoX provides a streaming engine that executes in bounded RAM (default 8MB chunks):
+```python
+from kolmox.core.streaming import KolmoXStreamer
+
+streamer = KolmoXStreamer(chunk_size=8 * 1024 * 1024)
+
+# Stream compression from file-like objects
+with open("large_scan.xyz", "rb") as src, open("large_scan.kmxs", "wb") as dst:
+    streamer.compress_stream(src, dst, filename="large_scan.xyz")
+```
+
+## 🛡️ Testing & Fuzz Resilience
+KolmoX includes a 32-test validation suite covering end-to-end roundtrips, C-ABI equivalence, and fuzz resilience against malformed or truncated data:
+```bash
+pytest tests/ -v
 ```
 
 ## 📖 Technical Whitepaper
