@@ -15,13 +15,14 @@ from kolmox.engines.video_engine import VideoEngine
 class KolmoXPipeline:
     MAGIC_MULTIBLOCK = b"KMX3"
 
-    def __init__(self, chunk_size: int = 65536, compression_level: int = 19):
+    def __init__(self, chunk_size: int = 65536, compression_level: int = 7, threads: int = -1):
         self.chunk_size = chunk_size
         self.level = compression_level
+        self.threads = threads
         self.compressor = BlockCompressor(delta_level=compression_level)
         self.delta_engine = DeltaEngine(compression_level=compression_level)
         self.runner = SandboxRunner()
-        self.zstd_cctx = zstd.ZstdCompressor(level=compression_level)
+        self.zstd_cctx = zstd.ZstdCompressor(level=compression_level, threads=threads)
         self.zstd_dctx = zstd.ZstdDecompressor()
 
     def compress(self, data: bytes) -> bytes:
