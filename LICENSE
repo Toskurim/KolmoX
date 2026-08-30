@@ -1,7 +1,7 @@
-﻿GNU AFFERO GENERAL PUBLIC LICENSE
+GNU AFFERO GENERAL PUBLIC LICENSE
 Version 3, 19 November 2007
 
-Copyright (C) 2026 KolmoX Authors
+Copyright (C) 2026 toskurim
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as published by
@@ -12,3 +12,11 @@ This program is distributed in the hope that it will be useful,
 but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+---
+
+DUAL LICENSING NOTICE
+For commercial licensing options or proprietary integrations without AGPLv3 copyleft obligations, please open an issue on the repository.

@@ -1,7 +1,7 @@
 # KolmoX ⚡
 
 [![CI Status](https://github.com/toskurim/KolmoX/workflows/CI/badge.svg)](https://github.com/toskurim/KolmoX/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)](https://www.python.org/)
 
 **KolmoX** is a high-performance, **100% bit-exact** compression framework designed to surpass generic entropy coders (like standard Gzip and Zstandard) by combining **structural domain-specific preconditioners**, **geometric/columnar transforms**, **hardware-accelerated decompression (CUDA/NVDEC)**, and **model-driven synthesis**.
@@ -91,6 +91,9 @@ python benchmarks/real_world_bench.py
 
 ---
 
-## 📄 License
+## 📄 License & Dual-Licensing
 
-Distributed under the **MIT** License. See [LICENSE](LICENSE) for details.
+This project is dual-licensed:
+
+1. **Open Source (GNU AGPLv3):** Freely available for open-source use, research, and community projects under strict network-copyleft terms. See [LICENSE](LICENSE).
+2. **Commercial & Proprietary License:** For enterprise, closed-source product integrations, or use cases where AGPLv3 is not suitable, please contact the author or open an issue.
