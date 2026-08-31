@@ -18,7 +18,7 @@ Empirical evaluation demonstrates substantial gains over standalone state-of-the
 
 ## Comprehensive Benchmark Results
 
-| Data Domain | Pipeline / Transform | Gzip (L9) | Zstd (Base) | KolmoX (KMX2) | Gain vs Zstd | Throughput (Comp / Decomp) |
+| Data Domain | Transformation Pipeline | Gzip (L9) | Zstd (Base) | KolmoX (KMX2) | Gain vs Zstd | Throughput (Comp / Decomp) |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **2D Raw Framebuffer / Raster (.bmp)** | 2D Spatial Delta + Color Slicing | 2.10x | 4.30x | **86.03x** | **+1900.7%** *(20.0x)* | ~240 MB/s / ~310 MB/s |
 | **Binary Register Packets (.bin)** | Stride Autocorr + Demux | 2.65x | 4.83x | **55.53x** | **+1049.7%** *(11.5x)* | ~180 MB/s / ~260 MB/s |
