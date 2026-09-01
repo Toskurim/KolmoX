@@ -1,8 +1,8 @@
 # KolmoX
 
-![CI/CD](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml/badge.svg)
+![CI/CD](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml/badge.svg?branch=main)
 [![PyPI](https://img.shields.io/pypi/v/kolmox.svg)](https://pypi.org/project/kolmox/)
-[![Python](https://img.shields.io/pypi/pyversions/kolmox.svg)](https://pypi.org/project/kolmox/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE)
 [![License: Commercial](https://img.shields.io/badge/License-Commercial-orange.svg)](#dual-licensing--commercial-use)
 
@@ -20,8 +20,8 @@ KolmoX bridges this gap. It is an enterprise-grade, high-throughput lossless com
 
 We live in an era where data generation has outpaced network bandwidth and storage interconnect speeds.
 
-* **The Scientific & AI Bottleneck**: Modern AI pipelines, LLM checkpointing, physics engines, and space telescopes (JWST, Roman) generate billions of IEEE-754 floating-point numbers. Standard compressors choke on shot noise and mantissa entropy. KolmoX delivers up to 28x+ on arrays and +22.8% net savings over Zstd on raw JWST FITS datasets without altering a single bit.
-* **Smart Manufacturing & Industry 4.0**: Robotics, CNC machining, 3D additive manufacturing, and autonomous vehicle LiDAR streams churn out terabytes of continuous telemetry daily. Squeezing columnar telemetry by 40x–47x drastically cuts cloud egress bills and edge-to-cloud transmission latency.
+* **The Scientific & AI Bottleneck**: Modern AI pipelines, LLM checkpointing, physics engines, and space telescopes (JWST, Roman) generate billions of IEEE-754 floating-point numbers. Standard compressors choke on shot noise and mantissa entropy. KolmoX delivers up to 15.7x on binary registers and 1.97x on dense vectors and +22.8% net savings over Zstd on raw JWST FITS datasets without altering a single bit.
+* **Smart Manufacturing & Industry 4.0**: Robotics, CNC machining, 3D additive manufacturing, and autonomous vehicle LiDAR streams churn out terabytes of continuous telemetry daily. Squeezing columnar telemetry by 12x–16x drastically cuts cloud egress bills and edge-to-cloud transmission latency.
 * **Lossless is Non-Negotiable**: In medical imaging, astrophysics, engineering CAD, industrial telemetry, and legal compliance, lossy compression artifacts are unacceptable. KolmoX proves that "lossless" doesn't have to mean "poor compression ratios".
 
 ## Real-World Benchmark Results
