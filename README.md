@@ -1,5 +1,12 @@
 # KolmoX
 
+![CI/CD](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml/badge.svg)
+[![PyPI](https://img.shields.io/pypi/v/kolmox.svg)](https://pypi.org/project/kolmox/)
+[![Python](https://img.shields.io/pypi/pyversions/kolmox.svg)](https://pypi.org/project/kolmox/)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE)
+[![License: Commercial](https://img.shields.io/badge/License-Commercial-orange.svg)](#dual-licensing--commercial-use)
+
+
 Let's be honest: standard general-purpose compressors (Gzip, LZMA, Snappy, and even vanilla Zstandard) are brilliant at what they were designed for, but they have a blind spot. They treat every single input as a flat, opaque 1D stream of bytes. While feeding raw LiDAR scans, 4K framebuffers, IEEE-754 float matrices, or multi-axis CNC paths into a sliding-window compressor technically works, it forces the algorithm to guess geometric and mathematical structures that we already know exist. It's like putting a high-precision mechanical blueprint through an office shredder before trying to tape it back together.
 
 KolmoX bridges this gap. It is an enterprise-grade, high-throughput lossless compression framework built on Kolmogorov Structural Preconditioning. Instead of treating data blindly, KolmoX understands the underlying topology of modern workloads, rearranging it into high-correlation and low-entropy planes before handing it over to entropy coders:
