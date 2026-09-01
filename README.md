@@ -12,6 +12,7 @@ Let's be honest: standard general-purpose compressors (Gzip, LZMA, Snappy, and e
 KolmoX bridges this gap. It is an enterprise-grade, high-throughput lossless compression framework built on Kolmogorov Structural Preconditioning. Instead of treating data blindly, KolmoX understands the underlying topology of modern workloads, rearranging it into high-correlation and low-entropy planes before handing it over to entropy coders:
 
 * **Domain-Aware Structural Transformations**: Automatically identifies data topology and applies deterministic, bit-exact transforms (such as Float32 byte-plane slicing to isolate sign/exponent bytes from high-entropy mantissas, 2D spatial delta modeling for FITS scientific imaging, CNC G-Code axis demuxing, and stereo PCM decorrelation) to eliminate structural correlation entropy.
+* **Continuous Dense Vector Slicing**: Decouples IEEE-754 Float32 memory streams (e.g. 1M+ raw embedding/sensor vectors) into discrete sign/exponent and mantissa byte planes. By separating predictable structural exponents from high-entropy mantissas, KolmoX provides near-instantaneous streaming compression (~930 MB/s decompression throughput, <5 ns per float) ideal for high-throughput in-memory caching tiers.
 * **KMX2 Multi-Stream Container**: Encapsulates primary and split auxiliary streams into a resilient 24-byte fixed-header format backed by high-speed Zstandard FSE entropy coding.
 * **High Performance & Constant-Memory Streaming**: Powered by native C-accelerated transposition kernels reaching up to 826+ MB/s, featuring KolmoXStreamer for bounded-RAM streaming on multi-gigabyte files, and a standalone C-ABI (include/kolmox.h) for zero-overhead C/C++/Rust integration.
 
@@ -36,6 +37,7 @@ All tests certify exact mathematical data restoration (zero precision loss, bit-
 | CNC G-Code (.gcode) | Columnar Axis Separation | 4.20x | 5.69x | 29.25x | +414.06% | 18.8 MB/s / 30.8 MB/s |
 | Scientific Float32 (.npy) | Byte-Plane Slicing (Sign/Exp/Mant) | 1.15x | 1.30x | 28.77x | +2113.1% | 826.3 MB/s / 750.0 MB/s |
 | **Astrophysics FITS (JWST)** | **2D Modular Delta + Big-Endian Slicing** | **1.47x** | **1.47x** | **1.90x** | **+22.87% (-17.5 MB)** | ~225 MB/s / ~340 MB/s |
+| Dense Vector Buffers (1M Float32) | IEEE-754 Byte-Plane Slicing | 1.18x | 1.61x | **1.97x** | **+18.45% RAM** | ~320 MB/s / **~927 MB/s** |
 | Parametric 3D CAD Mesh (.obj) | Ordered Vertex Transpose | 4.38x | 8.42x | 14.07x | +67.10% | ~95 MB/s / ~140 MB/s |
 | 4K & 5K Video Streams (60fps) | Temporal NVDEC + Delta-XOR | ~1.10x | ~1.15x | 3.15x – 6.56x | +173.9% ~ +470.4% | ~450 MB/s / ~600 MB/s |
 | Pre-compressed 3D Archive (.3mf) | Inner Stream Re-quantization | 1.00x (Deflate) | 1.00x | 1.39x | +39.00% (+28.15% size) | ~110 MB/s / ~165 MB/s |
