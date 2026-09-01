@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: kolmox
-Version: 1.1.1
+Version: 1.1.2
 Summary: Next-generation high-throughput domain-aware lossless data compression framework.
 Home-page: https://github.com/Toskurim/KolmoX
 Author: Toskurim
@@ -48,53 +48,50 @@ Dynamic: requires-python
 
 # KolmoX
 
-![CI/CD](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml/badge.svg)
+![CI/CD](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml/badge.svg?branch=main)
 [![PyPI](https://img.shields.io/pypi/v/kolmox.svg)](https://pypi.org/project/kolmox/)
-[![Python](https://img.shields.io/pypi/pyversions/kolmox.svg)](https://pypi.org/project/kolmox/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE)
 [![License: Commercial](https://img.shields.io/badge/License-Commercial-orange.svg)](#dual-licensing--commercial-use)
 
-Let's be honest: standard general-purpose compressors (Gzip, LZMA, Snappy, and even vanilla Zstandard) are brilliant at what they were designed for, but they have a blind spot. They treat every single input as a flat, opaque 1D stream of bytes. While feeding raw LiDAR scans, 4K framebuffers, IEEE-754 float matrices, or multi-axis CNC paths into a sliding-window compressor *technically* works, it forces the algorithm to guess geometric and mathematical structures that we already know exist. It's like putting a high-precision mechanical blueprint through an office shredder before trying to tape it back together.
 
-**KolmoX** bridges this gap. It is an enterprise-grade, high-throughput lossless compression framework built on **Kolmogorov Structural Preconditioning**. Instead of treating data blindly, KolmoX understands the underlying topology of modern workloads, rearranging it into high-correlation and low-entropy planes *before* handing it over to entropy coders:
-1. **Domain-Aware Structural Transformations**: Automatically identifies data topology and applies deterministic, bit-exact transforms (such as Float32 byte-plane slicing to isolate sign/exponent bytes from high-entropy mantissas, CNC GC-Gode axis demuxing, stereo PCM decorrelation, and 2D spatial delta modeling) to eliminate structural correlation entropy.
-2. **KMX2 Multi-Stream Container**: Encapsulates primary and split auxiliary streams into a resilient 24-byte fixed-header format backed by high-speed Zstandard FSE entropy coding.
-3. **High Performance & Constant-Memory Streaming**: Powered by native C-accelerated transposition kernels reaching up to **826+ MB/s**, featuring `KolmoXStreamer` for bounded-RAM streaming on multi-gigabyte files, and a standalone C-ABI (`include/kolmox.h`) for zero-overhead C/C++/Rust integration.
+Let's be honest: standard general-purpose compressors (Gzip, LZMA, Snappy, and even vanilla Zstandard) are brilliant at what they were designed for, but they have a blind spot. They treat every single input as a flat, opaque 1D stream of bytes. While feeding raw LiDAR scans, 4K framebuffers, IEEE-754 float matrices, or multi-axis CNC paths into a sliding-window compressor technically works, it forces the algorithm to guess geometric and mathematical structures that we already know exist. It's like putting a high-precision mechanical blueprint through an office shredder before trying to tape it back together.
 
----
+KolmoX bridges this gap. It is an enterprise-grade, high-throughput lossless compression framework built on Kolmogorov Structural Preconditioning. Instead of treating data blindly, KolmoX understands the underlying topology of modern workloads, rearranging it into high-correlation and low-entropy planes before handing it over to entropy coders:
 
-### 💥 Why KolmoX Matters: Today and in the Multi-Petabyte Future
+* **Domain-Aware Structural Transformations**: Automatically identifies data topology and applies deterministic, bit-exact transforms (such as Float32 byte-plane slicing to isolate sign/exponent bytes from high-entropy mantissas, 2D spatial delta modeling for FITS scientific imaging, CNC G-Code axis demuxing, and stereo PCM decorrelation) to eliminate structural correlation entropy.
+* **Continuous Dense Vector Slicing**: Decouples IEEE-754 Float32 memory streams (e.g. 1M+ raw embedding/sensor vectors) into discrete sign/exponent and mantissa byte planes. By separating predictable structural exponents from high-entropy mantissas, KolmoX provides near-instantaneous streaming compression (~930 MB/s decompression throughput, <5 ns per float) ideal for high-throughput in-memory caching tiers.
+* **KMX2 Multi-Stream Container**: Encapsulates primary and split auxiliary streams into a resilient 24-byte fixed-header format backed by high-speed Zstandard FSE entropy coding.
+* **High Performance & Constant-Memory Streaming**: Powered by native C-accelerated transposition kernels reaching up to 826+ MB/s, featuring KolmoXStreamer for bounded-RAM streaming on multi-gigabyte files, and a standalone C-ABI (include/kolmox.h) for zero-overhead C/C++/Rust integration.
+
+## Why KolmoX Matters: Today and in the Multi-Petabyte Future
 
 We live in an era where data generation has outpaced network bandwidth and storage interconnect speeds.
 
-- **The Scientific & AI Bottleneck**: Modern AI pipelines, LLM checkpointing, physics engines, and simulation arrays generate billions of IEEE-754 floating-point numbers. Standard compressors choke on mantissa entropy. KolmoX achieves up to **28x+ lossless ratios** on structured floats without altering a single bit.
-- **Smart Manufacturing & Industry 4.0**: Robotics, CNC machining, 3D additive manufacturing, and autonomous vehicle LiDAR streams churn out terabytes of continuous telemetry daily. Squeezing columnar telemetry by **40x–47x** drastically cuts cloud egress bills and edge-to-cloud transmission latency.
-- **Lossless is Non-Negotiable**: In medical imaging, engineering CAD, industrial telemetry, and legal compliance, lossy compression (JPEG, MP3, H.264 artifacts) is unacceptable. KolmoX proves that \"lossless\" doesn't have to mean \"poor compression ratios\".
+* **The Scientific & AI Bottleneck**: Modern AI pipelines, LLM checkpointing, physics engines, and space telescopes (JWST, Roman) generate billions of IEEE-754 floating-point numbers. Standard compressors choke on shot noise and mantissa entropy. KolmoX delivers up to 15.7x on binary registers and 1.97x on dense vectors and +22.8% net savings over Zstd on raw JWST FITS datasets without altering a single bit.
+* **Smart Manufacturing & Industry 4.0**: Robotics, CNC machining, 3D additive manufacturing, and autonomous vehicle LiDAR streams churn out terabytes of continuous telemetry daily. Squeezing columnar telemetry by 12x–16x drastically cuts cloud egress bills and edge-to-cloud transmission latency.
+* **Lossless is Non-Negotiable**: In medical imaging, astrophysics, engineering CAD, industrial telemetry, and legal compliance, lossy compression artifacts are unacceptable. KolmoX proves that "lossless" doesn't have to mean "poor compression ratios".
 
----
+## Real-World Benchmark Results
 
+All tests certify exact mathematical data restoration (zero precision loss, bit-exact roundtrip):
 
-## 📊 Real-World Benchmark Results
+| Data Domain | Pipeline / Transform | Baseline (Zstd L3) | KolmoX (KMX2) | Gain vs Zstd | Throughput (Comp / Decomp) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Binary Register Packets (.bin)** | Stride Autocorr + Demux | 3.68x | **15.70x** | **+76.54%** | ~450 MB/s / **~930 MB/s** |
+| **Industrial Telemetry (.csv)** | Columnar Demux + Quant Delta | 6.13x | **12.90x** | **+52.47%** | ~42 MB/s / ~56 MB/s |
+| **CNC G-Code (.gcode)** | Columnar Axis Separation | 3.46x | **5.48x** | **+36.78%** | ~35 MB/s / ~42 MB/s |
+| **2D Natural Sensor Raster (.bmp)** | 2D Spatial Delta | 2.84x | **3.97x** | **+28.26%** | ~265 MB/s / ~285 MB/s |
+| **Parametric 3D CAD Mesh (.obj)** | Ordered Vertex Plane Slicing | 3.14x | **4.26x** | **+26.45%** | ~520 MB/s / ~600 MB/s |
+| **Astrophysics FITS (JWST)** | 2D Modular Delta + Big-Endian Slicing | 1.47x | **1.90x** | **+22.87%** | ~225 MB/s / ~340 MB/s |
+| **LiDAR XYZ Point Cloud** | Columnar Coordinate Slicing | 1.15x | **1.44x** | **+20.00%** | ~280 MB/s / ~680 MB/s |
+| **Dense Vector Buffers (1M Float32)** | IEEE-754 Byte-Plane Slicing | 1.61x | **1.97x** | **+18.45%** | ~323 MB/s / **~927 MB/s** |
+| **Audio PCM 16-bit (.wav)** | Stereo Mid/Side Decorrelation | 1.45x | **1.55x** | **+6.09%** | ~135 MB/s / ~260 MB/s |
+| **x86 Binary Executable (.exe)** | Branch Target Normalizer (BCJ) | 1.87x | **1.86x** | **-0.66%** | ~25 MB/s / ~35 MB/s |
 
-All tests certify **exact mathematical data restoration** (zero precision loss, bit-exact roundtrip):
+> *Note: All metrics above represent physical empirical benchmarks executed on uncompressed real-world production datasets (including NASA/STScI JWST sensor observations, high-density CAM toolpaths, raw LiDAR coordinates, and industrial telemetry). Zero synthetic interpolation.*
 
-| Data Domain | Pipeline / Transform | Gzip (L9) | Zstd (Base) | KolmoX (KMX2) | Gain vs Zstd | Throughput (Comp / Decomp) |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **2D Raw Framebuffer / Raster (.bmp)** | 2D Spatial Delta + Color Slicing | 2.10x | 4.30x | **86.03x** | **+1900.7%** *(20.0x)* | ~240 MB/s / ~310 MB/s |
-| **Binary Register Packets (.bin)** | Stride Autocorr + Demux | 2.65x | 4.83x | **55.53x** | **+1049.7%** *(11.5x)* | ~180 MB/s / ~260 MB/s |
-| **LiDAR XYZ Point Cloud** | Columnar Coordinate Isolation | 8.40x | 27.11x | **47.31x** | **+74.51%** | 77.3 MB/s / 112.1 MB/s |
-| **Industrial Telemetry (.csv)** | Columnar Demux + Quant Delta | 3.93x | 19.65x | **40.20x** | **+104.58%** | ~120 MB/s / ~190 MB/s |
-| **CNC G-Code (.gcode)** | Columnar Axis Separation | 4.20x | 5.69x | **29.25x** | **+414.06%** | 18.8 MB/s / 30.8 MB/s |
-| **Scientific Float32 (.npy)** | Byte-Plane Slicing (Sign/Exp/Mant) | 1.15x | 1.30x | **28.77x** | **+2113.1%** | 826.3 MB/s / 750.0 MB/s |
-| **Parametric 3D CAD Mesh (.obj)** | Ordered Vertex Transpose | 4.38x | 8.42x | **14.07x** | **+67.10%** | ~95 MB/s / ~140 MB/s |
-| **4K & 5K Video Streams (60fps)** | Temporal NVDEC + Delta-XOR | ~1.10x | ~1.15x | **3.15x – 6.56x** | **+173.9% ~ +470.4%** | ~450 MB/s / ~600 MB/s |
-| **Pre-compressed 3D Archive (.3mf)** | Inner Stream Re-quantization | 1.00x (Deflate) | 1.00x | **1.39x** | **+39.00%** *(+28.15% size)* | ~110 MB/s / ~165 MB/s |
-| **Audio PCM 16-bit (.wav)** | Stereo Decorrelation + Diff | 1.01x | 39.81x | **41.55x** | **+4.37%** | 457.5 MB/s / 354.5 MB/s |
-| **x86 Binary Executable (.exe)** | Branch Target Normalizer (BCJ) | 5.40x | 7.59x | **7.65x** | **+0.79%** | ~380 MB/s / ~420 MB/s |
-
----
-
-## 🚀 Installation & Setup
+## Installation & Setup
 
 ```bash
 # Clone the repository
@@ -106,15 +103,18 @@ pip install -r requirements.txt
 pip install -e .
 ```
 
-## ⚙️ CMake Standalone C-Library Build
+## CMake Standalone C-Library Build
+
 For direct C/C++/Rust integration without Python:
+
 ```bash
 cmake -B build
 cmake --build build --config Release
 ```
+
 This generates `libkolmox.so` (or `kolmox.dll` / `libkolmox.dylib`) using the public C-ABI defined in `include/kolmox.h`.
 
-## 🔧 Quickstart CLI
+## Quickstart CLI
 
 ```bash
 # Auto-detect domain and compress into KMX2 container
@@ -127,8 +127,10 @@ kolmox decompress file.kmx -o restored.gcode
 python tests/benchmark_throughput.py
 ```
 
-## 🔄 Constant-Memory Streaming API
+## Constant-Memory Streaming API
+
 For multi-Gigabyte files, KolmoX provides a streaming engine that executes in bounded RAM (default 8MB chunks):
+
 ```python
 from kolmox.core.streaming import KolmoXStreamer
 
@@ -139,16 +141,21 @@ with open("large_scan.xyz", "rb") as src, open("large_scan.kmxs", "wb") as dst:
     streamer.compress_stream(src, dst, filename="large_scan.xyz")
 ```
 
-## 🛡️ Testing & Fuzz Resilience
-KolmoX includes a 32-test validation suite covering end-to-end roundtrips, C-ABI equivalence, and fuzz resilience against malformed or truncated data:
+## Testing & Fuzz Resilience
+
+KolmoX includes a 33-test validation suite covering end-to-end roundtrips, C-ABI equivalence, astrophysics FITS preconditioning, and fuzz resilience against malformed or truncated data:
+
 ```bash
 pytest tests/ -v
 ```
 
-## 📖 Technical Whitepaper
-A full academic whitepaper detailing the Kolmogorov complexity foundations, KMX2 container specification, and mathematical transforms is available in [docs/WHITEPAPER.md](docs/WHITEPAPER.md) and as a downloadable PDF in [docs/KolmoX_Technical_Paper_v1.1.0_Complete_EN.pdf](docs/KolmoX_Technical_Paper_v1.1.0_Complete_EN.pdf).
+## Technical Whitepaper
 
-## 📜 License
+A full academic whitepaper detailing the Kolmogorov complexity foundations, KMX2 container specification, and mathematical transforms is available in `docs/WHITEPAPER.md` and as a downloadable PDF in `docs/KolmoX_Technical_Paper_v1.1.0_Complete_EN.pdf`.
+
+## License
+
 KolmoX is dual-licensed:
-* **Open Source:** [GNU Affero General Public License v3.0 (AGPLv3)](LICENSE).
-* **Commercial & Enterprise:** For proprietary software integration without AGPLv3 copyleft obligations, contact `toskurim@gmail.com`.
+
+* **Open Source**: GNU Affero General Public License v3.0 (AGPLv3).
+* **Commercial & Enterprise**: For proprietary software integration without AGPLv3 copyleft obligations, contact toskurim@gmail.com.
