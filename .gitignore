@@ -17,3 +17,10 @@ benchmarks/datasets/*
 *.mp4
 *.kmxv
 output_*
+
+*.fits
+*.fit
+*.fts
+bench_*.py
+test_*.py
+!tests/test_*.py

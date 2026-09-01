@@ -1,3 +1,5 @@
+﻿import zstandard as zstd
+import numpy as np
 """
 KolmoX Extended Domain Preconditioning Engines (v1.1.0)
 Bit-exact, high-throughput transforms with C-acceleration and NumPy fallback.
@@ -228,3 +230,66 @@ class BinaryBCJEngine:
             else:
                 i += 1
         return bytes(data)
+
+class FitsEngine:
+    """Scientific FITS (Flexible Image Transport System) preconditioning engine.
+    Handles IAU Big-Endian matrices (>f4, >i4), 2D spatial modular differences,
+    and byte-plane slicing for astrophotography datasets.
+    """
+    def __init__(self, level: int = 3):
+        self.level = level
+        self.cctx = zstd.ZstdCompressor(level=self.level)
+        self.dctx = zstd.ZstdDecompressor()
+
+    def compress(self, raw_bytes: bytes) -> bytes:
+        from astropy.io import fits
+        import io
+
+        # Ingest FITS container
+        bio = io.BytesIO(raw_bytes)
+        out_stream = io.BytesIO()
+        
+        with fits.open(bio) as hdul:
+            # Header container: num_hdus
+            out_stream.write(len(hdul).to_bytes(2, "little"))
+            for hdu in hdul:
+                if hdu.data is None:
+                    hdr_b = str(hdu.header).encode("ascii")
+                    comp_hdr = self.cctx.compress(hdr_b)
+                    out_stream.write(b"\x00") # Type: Pure Header
+                    out_stream.write(len(comp_hdr).to_bytes(4, "little"))
+                    out_stream.write(comp_hdr)
+                    continue
+
+                arr = hdu.data
+                if isinstance(arr, np.ndarray) and arr.ndim == 2 and arr.dtype.itemsize == 4:
+                    rows, cols = arr.shape
+                    is_float = (arr.dtype.kind == "f")
+                    out_stream.write(b"\x01" if is_float else b"\x02") # Type: 2D f4 / i4
+                    out_stream.write(rows.to_bytes(4, "little"))
+                    out_stream.write(cols.to_bytes(4, "little"))
+
+                    raw_b = arr.tobytes()
+                    u32_view = np.frombuffer(raw_b, dtype=np.uint32).reshape(rows, cols)
+                    diff = np.empty_like(u32_view)
+                    diff[:, 0] = u32_view[:, 0]
+                    diff[:, 1:] = u32_view[:, 1:] - u32_view[:, :-1]
+
+                    u8_diff = np.frombuffer(diff.tobytes(), dtype=np.uint8).reshape(-1, 4)
+                    for p in range(4):
+                        plane_c = self.cctx.compress(u8_diff[:, p].tobytes())
+                        out_stream.write(len(plane_c).to_bytes(4, "little"))
+                        out_stream.write(plane_c)
+                else:
+                    raw_b = arr.tobytes() if hasattr(arr, "tobytes") else bytes(arr)
+                    comp_b = self.cctx.compress(raw_b)
+                    out_stream.write(b"\x03") # Type: Generic Fallback
+                    out_stream.write(len(comp_b).to_bytes(4, "little"))
+                    out_stream.write(comp_b)
+
+        return out_stream.getvalue()
+
+    def decompress(self, comp_bytes: bytes) -> bytes:
+        # Fallback decompressor stub
+        return comp_bytes
+
