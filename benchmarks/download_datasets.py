@@ -1,4 +1,4 @@
-﻿"""
+"""
 KolmoX - Open Benchmark Datasets Downloader
 Scarica campioni aperti reali per validare indipendentemente i benchmark di KolmoX.
 """

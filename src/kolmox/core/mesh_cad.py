@@ -1,4 +1,4 @@
-﻿"""
+"""
 KolmoX - Advanced CAD & Parametric Geometry Engine (Phase 3)
 Supports OBJ, STL (ASCII/Binary), and ISO 10303-21 STEP/STP formats.
 """

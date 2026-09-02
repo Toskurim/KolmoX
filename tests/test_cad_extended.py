@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unit tests for extended CAD formats (OBJ, Binary STL, ISO 10303-21 STEP)
 """
 

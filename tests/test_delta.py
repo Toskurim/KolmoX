@@ -1,4 +1,4 @@
-﻿"""
+"""
 Tests for DeltaEngine - Bit-exact lossless verification.
 """
 

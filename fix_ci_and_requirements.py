@@ -1,4 +1,4 @@
-﻿# 1. Aggiorna requirements.txt assicurando tutte le dipendenze per i test
+# 1. Aggiorna requirements.txt assicurando tutte le dipendenze per i test
 reqs = """numpy>=1.22.0
 zstandard>=0.20.0
 pytest>=7.0.0

@@ -1,4 +1,4 @@
-﻿"""
+"""
 Unit tests for KolmoX Parallel Chunked Pipeline Engine (Phase 2)
 """
 

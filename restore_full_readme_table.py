@@ -1,4 +1,4 @@
-﻿with open("README.md", "r", encoding="utf-8") as f:
+with open("README.md", "r", encoding="utf-8") as f:
     content = f.read()
 
 table_start = content.find("| Data Domain |")

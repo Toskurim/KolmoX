@@ -1,4 +1,4 @@
-﻿with open("README.md", "r", encoding="utf-8") as f:
+with open("README.md", "r", encoding="utf-8") as f:
     content = f.read()
 
 # Individua inizio e fine della vecchia tabella

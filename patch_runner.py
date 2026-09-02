@@ -1,4 +1,4 @@
-﻿with open("src/kolmox/sandbox/runner.py", "r", encoding="utf-8") as f:
+with open("src/kolmox/sandbox/runner.py", "r", encoding="utf-8") as f:
     code = f.read()
 
 old_exec = """        try:

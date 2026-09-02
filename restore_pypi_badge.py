@@ -1,4 +1,4 @@
-﻿with open("README.md", "r", encoding="utf-8") as f:
+with open("README.md", "r", encoding="utf-8") as f:
     text = f.read()
 
 # Ripristina il badge PyPI ufficiale con la versione aggiornata

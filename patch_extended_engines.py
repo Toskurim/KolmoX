@@ -1,4 +1,4 @@
-﻿with open("src/kolmox/engines/extended_domains.py", "r", encoding="utf-8") as f:
+with open("src/kolmox/engines/extended_domains.py", "r", encoding="utf-8") as f:
     content = f.read()
 
 header = """from .base import BaseDomainEngine

@@ -1,4 +1,4 @@
-﻿with open("docs/WHITEPAPER.md", "r", encoding="utf-8") as f:
+with open("docs/WHITEPAPER.md", "r", encoding="utf-8") as f:
     text = f.read()
 
 # 1. Rimpiazza Abstract e Tabella

@@ -1,4 +1,4 @@
-﻿with open("src/kolmox/core/pipeline.py", "r", encoding="utf-8") as f:
+with open("src/kolmox/core/pipeline.py", "r", encoding="utf-8") as f:
     text = f.read()
 
 # Assicuriamo che nell'__init__ di KolmoXPipeline sia sempre impostato self.allow_code_execution

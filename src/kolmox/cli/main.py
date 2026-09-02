@@ -1,4 +1,4 @@
-﻿"""
+"""
 KolmoX CLI (v1.1.0)
 Command-line interface for compression, decompression, and domain dispatch.
 """

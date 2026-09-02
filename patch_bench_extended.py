@@ -1,4 +1,4 @@
-﻿with open("benchmarks/benchmark_extended.py", "r", encoding="utf-8") as f:
+with open("benchmarks/benchmark_extended.py", "r", encoding="utf-8") as f:
     code = f.read()
 
 # Aggiorna bench_domain per applicare l'adaptive fallback garantito da KolmoX

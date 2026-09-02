@@ -1,5 +1,5 @@
 from .base import BaseDomainEngine
-﻿import zstandard as zstd
+import zstandard as zstd
 import numpy as np
 """
 KolmoX Extended Domain Preconditioning Engines (v1.1.0)

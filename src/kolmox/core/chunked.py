@@ -1,4 +1,4 @@
-﻿"""
+"""
 KolmoX - Parallel Chunked Processing Engine (Phase 2)
 Handles high-throughput multi-core compression for large datasets.
 """

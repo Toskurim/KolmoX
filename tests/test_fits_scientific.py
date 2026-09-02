@@ -1,4 +1,4 @@
-﻿import pytest
+import pytest
 import numpy as np
 from kolmox.engines.extended_domains import FitsEngine
 

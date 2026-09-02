@@ -1,4 +1,4 @@
-﻿import re, os, shutil
+import re, os, shutil
 
 # 1. Bump setup.py
 with open("setup.py", "r", encoding="utf-8") as f:
