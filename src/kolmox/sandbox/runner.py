@@ -38,6 +38,11 @@ class SandboxRunner:
             "math": math,
         }
 
+        if not kwargs.get("allow_code_execution", False):
+            raise PermissionError(
+                "Arbitrary code execution in sandbox is disabled by default. "
+                "Explicitly provide allow_code_execution=True to run synthesis scripts."
+            )
         try:
             exec(script_source, global_scope, local_scope)
             if entry_point not in local_scope:

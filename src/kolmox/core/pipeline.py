@@ -69,8 +69,14 @@ class KolmoXPipeline:
             xor_part = bytes([p ^ d for p, d in zip(predicted_data[:min_len], delta_bytes[:min_len])])
             return xor_part + delta_bytes[min_len:]
 
-    def compress_with_script(self, raw_data: bytes, python_script: str) -> bytes:
+    def compress_with_script(self, raw_data: bytes, python_script: str, allow_code_execution: Optional[bool] = None) -> bytes:
         """Pipeline classica basata su sintesi di codice + delta residuo."""
+        can_exec = getattr(self, 'allow_code_execution', True) if allow_code_execution is None else allow_code_execution
+        if not can_exec:
+            raise PermissionError(
+                "Arbitrary code execution is disabled by default for security. "
+                "Pass allow_code_execution=True to explicitly permit running untrusted synthesis scripts."
+            )
         loc = {}
         exec(python_script, {}, loc)
         if "generate" not in loc or not callable(loc["generate"]):
@@ -115,6 +121,11 @@ class KolmoXPipeline:
         decompressed_script = self.dctx.decompress(parsed["compressed_script"]).decode("utf-8")
         decompressed_delta = self.dctx.decompress(parsed["compressed_delta"])
 
+        if not getattr(self, 'allow_code_execution', True):
+            raise PermissionError(
+                "Arbitrary code execution is disabled by default for security. "
+                "Decompressing legacy script containers requires allow_code_execution=True."
+            )
         loc = {}
         exec(decompressed_script, {}, loc)
         predicted = loc["generate"]()
@@ -127,27 +138,54 @@ class KolmoXPipeline:
         filename: Optional[str] = None,
         force_domain: Optional[DomainType] = None,
     ) -> bytes:
-        """Pipeline estesa v1.1.0 (Extended Domains & Multi-stream KMX2)."""
-        domain = (
+        """Pipeline estesa v1.1.2 (Extended Domains & Multi-stream KMX2 con Adaptive Competitive Fallback)."""
+        target_domain = (
             force_domain
             if force_domain is not None
             else DomainRouter.detect_domain(data, filename)
         )
-        primary_payload, aux_payload = DomainRouter.precondition(domain, data)
 
-        comp_primary = self.cctx.compress(primary_payload)
-        comp_aux = self.cctx.compress(aux_payload) if aux_payload else b""
-
-        header = struct.pack(
+        # 1. Baseline garantito: compressione grezza Zstd incapsulata in KMX2 GENERIC
+        raw_comp_primary = self.cctx.compress(data)
+        baseline_header = struct.pack(
             "<4sHBBQQ",
             KMX2_MAGIC,
             KMX2_VERSION,
-            int(domain),
+            int(DomainType.GENERIC),
             0,
             len(data),
-            len(comp_aux),
+            0,
         )
-        return header + comp_aux + comp_primary
+        baseline_packet = baseline_header + raw_comp_primary
+
+        if target_domain == DomainType.GENERIC:
+            return baseline_packet
+
+        # 2. Tentativo di trasformazione di dominio competitivo
+        try:
+            primary_payload, aux_payload = DomainRouter.precondition(target_domain, data)
+            comp_primary = self.cctx.compress(primary_payload)
+            comp_aux = self.cctx.compress(aux_payload) if aux_payload else b""
+
+            candidate_header = struct.pack(
+                "<4sHBBQQ",
+                KMX2_MAGIC,
+                KMX2_VERSION,
+                int(target_domain),
+                0,
+                len(data),
+                len(comp_aux),
+            )
+            candidate_packet = candidate_header + comp_aux + comp_primary
+
+            # Competitive Check: mantieni la trasformazione SOLO se batte il baseline grezzo
+            if len(candidate_packet) < len(baseline_packet):
+                return candidate_packet
+        except Exception:
+            # Fallback trasparente in caso di anomalie di dominio o dati corrotti
+            pass
+
+        return baseline_packet
 
     def decompress_bytes(self, kmx_data: bytes) -> bytes:
         """Decompressione universale."""
