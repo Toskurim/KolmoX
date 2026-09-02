@@ -1,20 +1,20 @@
 # KolmoX
 
-![CI/CD](https://github.com/Toskurim/KolmoX/actions/workflows/tests.yml/badge.svg?branch=main)
-[![PyPI](https://img.shields.io/pypi/v/kolmox.svg)](https://pypi.org/project/kolmox/)
-[![PyPI version](https://img.shields.io/pypi/v/kolmox.svg)](https://pypi.org/project/kolmox/) [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![License: AGPL v3](https://img.shields.io/badge/License-AGPLv3-blue.svg)](LICENSE)
-[![License: Commercial](https://img.shields.io/badge/License-Commercial-orange.svg)](#dual-licensing--commercial-use)
+[![PyPI version](https://img.shields.io/pypi/v/kolmox.svg)](https://pypi.org/project/kolmox/) [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](LICENSE)
 
+> **Architectural Positioning**: KolmoX is **not** a general-purpose replacement for Zstandard, Snappy, or Deflate. 
+> Exactly as the PNG Delta Filter or the FLAC Mid/Side Decorrelator operate ahead of Deflate, KolmoX is a **domain-specific structural preconditioner**. It linearizes physical coordinates, IEEE-754 mantissas, and multi-dimensional matrices *before* entropy coding, eliminating topological correlations that sliding-window (LZ77) engines cannot detect.
+>
+> For production workloads, use the dedicated engine classes directly (`FitsEngine`, `ScientificFloatEngine`, `GCodeEngine`, etc.). An **Adaptive Competitive Fallback** ensures KolmoX output is mathematically guaranteed never to exceed plain Zstandard.
 
-Let's be honest: standard general-purpose compressors (Gzip, LZMA, Snappy, and even vanilla Zstandard) are brilliant at what they were designed for, but they have a blind spot. They treat every single input as a flat, opaque 1D stream of bytes. While feeding raw LiDAR scans, 4K framebuffers, IEEE-754 float matrices, or multi-axis CNC paths into a sliding-window compressor technically works, it forces the algorithm to guess geometric and mathematical structures that we already know exist. It's like putting a high-precision mechanical blueprint through an office shredder before trying to tape it back together.
+---
 
-KolmoX bridges this gap. It is an enterprise-grade, high-throughput lossless compression framework built on Kolmogorov Structural Preconditioning. Instead of treating data blindly, KolmoX understands the underlying topology of modern workloads, rearranging it into high-correlation and low-entropy planes before handing it over to entropy coders:
+### Evidence Tiers
 
-* **Domain-Aware Structural Transformations**: Automatically identifies data topology and applies deterministic, bit-exact transforms (such as Float32 byte-plane slicing to isolate sign/exponent bytes from high-entropy mantissas, 2D spatial delta modeling for FITS scientific imaging, CNC G-Code axis demuxing, and stereo PCM decorrelation) to eliminate structural correlation entropy.
-* **Continuous Dense Vector Slicing**: Decouples IEEE-754 Float32 memory streams (e.g. 1M+ raw embedding/sensor vectors) into discrete sign/exponent and mantissa byte planes. By separating predictable structural exponents from high-entropy mantissas, KolmoX provides near-instantaneous streaming compression (~930 MB/s decompression throughput, <5 ns per float) ideal for high-throughput in-memory caching tiers.
-* **KMX2 Multi-Stream Container**: Encapsulates primary and split auxiliary streams into a resilient 24-byte fixed-header format backed by high-speed Zstandard FSE entropy coding.
-* **High Performance & Constant-Memory Streaming**: Powered by native C-accelerated transposition kernels reaching up to 826+ MB/s, featuring KolmoXStreamer for bounded-RAM streaming on multi-gigabyte files, and a standalone C-ABI (include/kolmox.h) for zero-overhead C/C++/Rust integration.
+* **✅ Tier 1 (Reproducible In-Script)**: Synthetic-but-realistic datasets generated programmatically via `python benchmarks/benchmark_extended.py`. Fully reproducible by any third party with zero external dependencies.
+* **📋 Tier 2 (Production Data / Reported)**: Benchmarked against production binary streams (NASA/STScI James Webb MIRI FITS, 5-axis CNC toolpaths, and Modbus/PLC telemetry registers). Reproducible via `python benchmarks/download_datasets.py` for publicly licensed archives.
+
+---
 
 ## Why KolmoX Matters: Today and in the Multi-Petabyte Future
 

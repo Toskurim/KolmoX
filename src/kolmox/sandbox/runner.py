@@ -17,11 +17,11 @@ def _safe_import(name, *args, **kwargs):
 class SandboxRunner:
     @staticmethod
     def execute(script_source: str, entry_point: str = "generate") -> bytes:
-        safe_builtins = {
-            "range": range,
-            "len": len,
+                safe_builtins = {
             "bytearray": bytearray,
             "bytes": bytes,
+            "range": range,
+            "len": len,
             "int": int,
             "float": float,
             "min": min,
@@ -29,7 +29,6 @@ class SandboxRunner:
             "abs": abs,
             "pow": pow,
             "round": round,
-            "__import__": _safe_import,
         }
 
         local_scope: Dict[str, Any] = {}

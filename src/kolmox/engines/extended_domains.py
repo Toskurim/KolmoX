@@ -1,3 +1,4 @@
+from .base import BaseDomainEngine
 ﻿import zstandard as zstd
 import numpy as np
 """
@@ -16,7 +17,7 @@ except ImportError:
     HAS_C_EXT = False
 
 
-class ScientificFloatEngine:
+class ScientificFloatEngine(BaseDomainEngine):
     @staticmethod
     def transform_f32_byte_plane(raw_data: bytes) -> bytes:
         num_bytes = len(raw_data)
@@ -39,7 +40,7 @@ class ScientificFloatEngine:
         return arr.T.tobytes()
 
 
-class AudioPCMEngine:
+class AudioPCMEngine(BaseDomainEngine):
     @staticmethod
     def is_wav(data: bytes) -> bool:
         return len(data) >= 12 and data[0:4] == b"RIFF" and data[8:12] == b"WAVE"
@@ -94,7 +95,7 @@ class AudioPCMEngine:
         return header + stereo.tobytes()
 
 
-class GCodeEngine:
+class GCodeEngine(BaseDomainEngine):
     @staticmethod
     def is_gcode(data: bytes) -> bool:
         sample = data[:1024].decode("utf-8", errors="ignore").upper()
@@ -166,7 +167,7 @@ class GCodeEngine:
         return b"\n".join(out_lines)
 
 
-class PointCloudEngine:
+class PointCloudEngine(BaseDomainEngine):
     @staticmethod
     def transform_xyz_ascii(raw_data: bytes) -> Tuple[bytes, bytes]:
         lines = raw_data.split(b"\n")
@@ -198,7 +199,7 @@ class PointCloudEngine:
         return b"\n".join(out) + b"\n"
 
 
-class BinaryBCJEngine:
+class BinaryBCJEngine(BaseDomainEngine):
     @staticmethod
     def transform_x86(raw_data: bytes) -> bytes:
         data = bytearray(raw_data)
