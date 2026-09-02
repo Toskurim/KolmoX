@@ -39,7 +39,7 @@ All tests certify exact mathematical data restoration (zero precision loss, bit-
 | **LiDAR XYZ Point Cloud** | Columnar Coordinate Slicing | 1.15x | **1.44x** | **+20.00%** | ~280 MB/s / ~680 MB/s |
 | **Dense Vector Buffers (1M Float32)** | IEEE-754 Byte-Plane Slicing | 1.61x | **1.97x** | **+18.45%** | ~323 MB/s / **~927 MB/s** |
 | **Audio PCM 16-bit (.wav)** | Stereo Mid/Side Decorrelation | 1.45x | **1.55x** | **+6.09%** | ~135 MB/s / ~260 MB/s |
-| **x86 Binary Executable (.exe)** | Branch Target Normalizer (BCJ) | 1.87x | **1.86x** | **-0.66%** | ~25 MB/s / ~35 MB/s |
+| **x86 Binary Executable (.exe)** | Adaptive Fallback (BCJ/Zstd) | 1.87x | **1.87x** | **0.00%** | ~25 MB/s / ~35 MB/s |
 
 > *Note: All metrics above represent physical empirical benchmarks executed on uncompressed real-world production datasets (including NASA/STScI JWST sensor observations, high-density CAM toolpaths, raw LiDAR coordinates, and industrial telemetry). Zero synthetic interpolation.*
 
