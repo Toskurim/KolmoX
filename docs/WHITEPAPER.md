@@ -3,7 +3,7 @@
 
 *Author:* KolmoX Open-Source Research Project  
 *Date:* August 2026  
-*Specification:* KMX2 Engine Spec (v1.2.0)
+*Specification:* KMX2 Engine Spec (v1.2.1)
 
 > **Correction notice - 2026-09-03.** The benchmark table and abstract of this
 > document previously reported figures that could not be reproduced by the

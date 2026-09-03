@@ -79,6 +79,33 @@ lavoro non è stato nemmeno tentato per non produrre codice non verificabile.
 
 ---
 
+## VideoEngine: sostituire l'XOR con un delta aritmetico
+
+Misurato su 60 frame reali di gameplay 5120x1440 (2026-09-03), non ipotizzato.
+
+`VideoEngine.compress_sequence` calcola `frame[i] XOR frame[i-1]`. Su dati
+continui come il video l'XOR è penalizzante: due valori adiacenti a cavallo di
+un bit alto danno un residuo enorme (`127 ^ 128 = 255`) dove la sottrazione
+darebbe `1`. Sugli stessi 20 frame:
+
+| Trasformazione | Dimensione | vs Zstd puro |
+|---|---:|---:|
+| Zstd puro sul raw | 255,469,299 | — |
+| XOR temporale (attuale) | 192,039,869 | +24.83% |
+| **Delta aritmetico mod 256** | **158,488,817** | **+37.96%** |
+
+Il delta aritmetico è **17.47% più piccolo** dell'XOR, ed è reversibile:
+verificato che `np.cumsum(delta, axis=0) % 256` ricostruisce i frame bit-exact.
+
+**Perché non è già stato fatto:** cambia il formato del payload prodotto da
+`VideoEngine`, quindi i container esistenti con `domain_id=9` non sarebbero
+più leggibili. Va gestito come cambio di formato — o con un flag di versione
+nell'header `KMXV1`, che ha già un campo versione inutilizzato nel container
+esterno KMX2.
+
+**Guadagno atteso:** la riga video su gameplay reale passerebbe da +25.14% a
+circa +38%.
+
 ## Altri difetti noti
 
 - **`getattr(self, 'allow_code_execution', True)`** in `pipeline.py:75` e `:125`

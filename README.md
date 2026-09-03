@@ -20,8 +20,8 @@
 
 We live in an era where data generation has outpaced network bandwidth and storage interconnect speeds.
 
-* **The Scientific & AI Bottleneck**: Modern AI pipelines, LLM checkpointing, physics engines, and space telescopes (JWST, Roman) generate billions of IEEE-754 floating-point numbers. Standard compressors choke on shot noise and mantissa entropy. KolmoX delivers up to 15.7x on binary registers and 1.97x on dense vectors and +22.8% net savings over Zstd on raw JWST FITS datasets without altering a single bit.
-* **Smart Manufacturing & Industry 4.0**: Robotics, CNC machining, 3D additive manufacturing, and autonomous vehicle LiDAR streams churn out terabytes of continuous telemetry daily. Squeezing columnar telemetry by 12x–16x drastically cuts cloud egress bills and edge-to-cloud transmission latency.
+* **The Scientific & AI Bottleneck**: Modern AI pipelines, LLM checkpointing, physics engines, and space telescopes (JWST, Roman) generate billions of IEEE-754 floating-point numbers. Standard compressors choke on shot noise and mantissa entropy. KolmoX delivers up to +54.67% on binary registers, +31.86% on dense vectors, and +16.31% net savings over Zstd on raw JWST FITS datasets without altering a single bit.
+* **Smart Manufacturing & Industry 4.0**: Robotics, CNC machining, 3D additive manufacturing, and autonomous vehicle LiDAR streams churn out terabytes of continuous telemetry daily. Squeezing columnar telemetry by up to +44.24% drastically cuts cloud egress bills and edge-to-cloud transmission latency.
 * **Lossless is Non-Negotiable**: In medical imaging, astrophysics, engineering CAD, industrial telemetry, and legal compliance, lossy compression artifacts are unacceptable. KolmoX proves that "lossless" doesn't have to mean "poor compression ratios".
 
 ## Real-World Benchmark Results
@@ -39,6 +39,7 @@ All tests certify exact mathematical data restoration (zero precision loss, bit-
 | **Temporal Video Sequence (.kmxvraw)** † | Frame XOR Delta (SIMD) | 1.00x | **1.77x** | **+43.45%** | ~120 MB/s / ~189 MB/s |
 | **2D Natural Sensor Raster (.bmp)** † | 2D Spatial Delta | 1.07x | **1.80x** | **+40.38%** | ~37 MB/s / ~2.4 MB/s |
 | **Dense Float32 Buffer (250k values)** † | IEEE-754 Byte-Plane Slicing | 1.29x | **1.89x** | **+31.86%** | ~236 MB/s / ~642 MB/s |
+| **Temporal Video (real gameplay)** ³ | Frame XOR Delta (SIMD) | 1.70x | **2.28x** | **+25.14%** | ~95 MB/s / ~52 MB/s |
 | **Astrophysics FITS (JWST) — real data** | IEEE-754 Byte-Plane Slicing (auto-routed) | 1.47x | **1.76x** | **+16.31%** | ~213 MB/s / ~714 MB/s |
 | **x86 Binary Executable (.exe)** † ² | Adaptive Fallback (BCJ/Zstd) | 7.59x | **7.56x** | **-0.46%** | ~13 MB/s / ~879 MB/s |
 
@@ -49,6 +50,10 @@ All tests certify exact mathematical data restoration (zero precision loss, bit-
 > ¹ *The LiDAR dataset is a deterministic arithmetic ramp, which is why even the plain Zstd baseline reaches 27.11x. It demonstrates the transform works, but it is **not** representative of real scanner output - treat this row as a mechanism check, not a performance claim.*
 >
 > ² *A 40 KB synthetic instruction stream; at that size the throughput timings are dominated by measurement noise.*
+>
+> ³ *Real data, and the honest counterpart to the synthetic video row above: 60 consecutive frames of 5120x1440 gameplay footage at full resolution, no downscaling. The gain drops from +43.45% to **+25.14%** because the content is adversarial for a temporal transform - 61% of bytes change between consecutive frames (up to 89% in the busiest pairs). The transform still wins the competitive check, so it is kept rather than discarded. Read the two video rows together: the synthetic figure is what low-motion content gives, not what video gives in general.*
+>
+> *Known headroom on this row: the engine XORs consecutive frames, but XOR is a poor fit for continuous data - two adjacent values straddling a high bit produce a large residual (127 ^ 128 = 255) where subtraction would produce 1. Measured on the same frames, an arithmetic delta mod 256 compresses **17.47% smaller** than the XOR (+37.96% vs +24.83% against plain Zstd) and is equally reversible. Changing it alters the stored payload format, so it is tracked in `TODO.md` rather than applied silently.*
 >
 > *Domain gains depend on the data actually having the structure the transform exploits. On a high-entropy input - a random-walk mesh with 6 decimals of noise per coordinate, or the x86 stream above - the transform yields nothing, the adaptive competitive fallback discards it, and the stored result is the plain Zstd baseline plus the 24-byte KMX2 header. The raster decompression figure (~2.4 MB/s) reflects a pure-Python pixel loop whose sequential dependency has not yet been ported to the C extension; it is the current honest number, not a target.*
 
