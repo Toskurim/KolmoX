@@ -1,0 +1,59 @@
+# Marca esplicitamente i file binari, così non si dipende dall'euristica di
+# rilevamento di Git. Con core.autocrlf=true (default su Windows) un binario
+# non riconosciuto verrebbe corrotto dalla conversione LF/CRLF al checkout.
+#
+# "binary" è una scorciatoia per "-text -diff": niente conversione dei fine
+# riga e niente tentativo di diff testuale.
+
+# --- Documenti ---
+*.pdf    binary
+
+# --- Dati scientifici ---
+*.fits   binary
+*.fit    binary
+*.fts    binary
+*.npy    binary
+*.npz    binary
+
+# --- Formati contenitore KolmoX ---
+*.kmx     binary
+*.kmxv    binary
+*.kmxvraw binary
+
+# --- Media ---
+*.mp4    binary
+*.avi    binary
+*.mov    binary
+*.wav    binary
+*.pcm    binary
+
+# --- Immagini ---
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.bmp    binary
+*.gif    binary
+*.ico    binary
+
+# --- Archivi ---
+*.zip    binary
+*.gz     binary
+*.zst    binary
+*.7z     binary
+*.tar    binary
+
+# --- Estensioni compilate ---
+*.so     binary
+*.pyd    binary
+*.dll    binary
+*.dylib  binary
+
+# --- Mesh CAD ---
+# STL esiste sia in variante ASCII sia binaria; marcarlo binary protegge la
+# seconda al prezzo di rinunciare al diff sulla prima. La corruzione è un
+# danno peggiore di un diff mancante.
+*.stl    binary
+
+# NOTA: *.obj NON va marcato binary. In questo progetto è il formato mesh
+# Wavefront, che è testo (righe "v x y z" / "f a b c"), non un object file
+# compilato. Marcarlo binary romperebbe i diff su dati di test legittimi.
