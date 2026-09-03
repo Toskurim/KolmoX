@@ -139,7 +139,7 @@ class KolmoXPipeline:
         filename: Optional[str] = None,
         force_domain: Optional[DomainType] = None,
     ) -> bytes:
-        """Pipeline estesa v1.1.2 (Extended Domains & Multi-stream KMX2 con Adaptive Competitive Fallback)."""
+        """Pipeline estesa v1.2.0 (Extended Domains & Multi-stream KMX2 con Adaptive Competitive Fallback)."""
         target_domain = (
             force_domain
             if force_domain is not None

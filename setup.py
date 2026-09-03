@@ -22,7 +22,7 @@ fast_ext = Extension(
 
 setup(
     name="kolmox",
-    version="1.1.2",
+    version="1.2.0",
     author="Toskurim",
     author_email="toskurim@gmail.com",
     description="Next-generation high-throughput domain-aware lossless data compression framework.",

@@ -3,6 +3,13 @@
 *$py.class
 *.so
 .Python
+
+# Artefatti di build: rigenerabili con `python -m build`, non vanno versionati.
+# Erano tracciati fino alla 1.1.2, e questo significava tenere nel repo copie
+# del README con dentro i numeri di benchmark poi smentiti.
+dist/
+build/
+*.egg-info/
 env/
 venv/
 .venv/
