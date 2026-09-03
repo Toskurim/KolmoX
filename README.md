@@ -30,18 +30,27 @@ All tests certify exact mathematical data restoration (zero precision loss, bit-
 
 | Data Domain | Pipeline / Transform | Baseline (Zstd L3) | KolmoX (KMX2) | Gain vs Zstd | Throughput (Comp / Decomp) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Binary Register Packets (.bin)** | Stride Autocorr + Demux | 3.68x | **15.70x** | **+76.54%** | ~450 MB/s / **~930 MB/s** |
-| **Industrial Telemetry (.csv)** | Columnar Demux + Quant Delta | 6.13x | **12.90x** | **+52.47%** | ~42 MB/s / ~56 MB/s |
-| **CNC G-Code (.gcode)** | Columnar Axis Separation | 3.46x | **5.48x** | **+36.78%** | ~35 MB/s / ~42 MB/s |
-| **2D Natural Sensor Raster (.bmp)** | 2D Spatial Delta | 2.84x | **3.97x** | **+28.26%** | ~265 MB/s / ~285 MB/s |
-| **Parametric 3D CAD Mesh (.obj)** | Ordered Vertex Plane Slicing | 3.14x | **4.26x** | **+26.45%** | ~520 MB/s / ~600 MB/s |
-| **Astrophysics FITS (JWST)** | 2D Modular Delta + Big-Endian Slicing | 1.47x | **1.90x** | **+22.87%** | ~225 MB/s / ~340 MB/s |
-| **LiDAR XYZ Point Cloud** | Columnar Coordinate Slicing | 1.15x | **1.44x** | **+20.00%** | ~280 MB/s / ~680 MB/s |
-| **Dense Vector Buffers (1M Float32)** | IEEE-754 Byte-Plane Slicing | 1.61x | **1.97x** | **+18.45%** | ~323 MB/s / **~927 MB/s** |
-| **Audio PCM 16-bit (.wav)** | Stereo Mid/Side Decorrelation | 1.45x | **1.55x** | **+6.09%** | ~135 MB/s / ~260 MB/s |
-| **x86 Binary Executable (.exe)** | Adaptive Fallback (BCJ/Zstd) | 1.87x | **1.87x** | **0.00%** | ~25 MB/s / ~35 MB/s |
+| **CNC G-Code (.gcode)** † | Columnar Axis Separation | 5.69x | **15.84x** | **+64.10%** | ~24 MB/s / ~35 MB/s |
+| **Parametric 3D CAD Mesh (.obj)** † | Prefix-Grouped Vertex Plane Slicing | 6.00x | **16.27x** | **+63.12%** | ~40 MB/s / ~80 MB/s |
+| **Audio PCM 16-bit (.wav)** † | Stereo Mid/Side Decorrelation | 1.02x | **2.59x** | **+60.48%** | ~172 MB/s / ~284 MB/s |
+| **LiDAR XYZ Point Cloud** † ¹ | Columnar Coordinate Slicing | 27.11x | **65.79x** | **+58.79%** | ~80 MB/s / ~106 MB/s |
+| **Binary Register Packets (.bin)** † | Stride Autocorr + Demux | 1.86x | **4.10x** | **+54.67%** | ~158 MB/s / ~1094 MB/s |
+| **Industrial Telemetry (.csv)** † | Shape-Grouped Columnar Demux | 4.59x | **8.23x** | **+44.24%** | ~47 MB/s / ~98 MB/s |
+| **Temporal Video Sequence (.kmxvraw)** † | Frame XOR Delta (SIMD) | 1.00x | **1.77x** | **+43.45%** | ~120 MB/s / ~189 MB/s |
+| **2D Natural Sensor Raster (.bmp)** † | 2D Spatial Delta | 1.07x | **1.80x** | **+40.38%** | ~37 MB/s / ~2.4 MB/s |
+| **Dense Float32 Buffer (250k values)** † | IEEE-754 Byte-Plane Slicing | 1.29x | **1.89x** | **+31.86%** | ~236 MB/s / ~642 MB/s |
+| **Astrophysics FITS (JWST) — real data** | IEEE-754 Byte-Plane Slicing (auto-routed) | 1.47x | **1.76x** | **+16.31%** | ~213 MB/s / ~714 MB/s |
+| **x86 Binary Executable (.exe)** † ² | Adaptive Fallback (BCJ/Zstd) | 7.59x | **7.56x** | **-0.46%** | ~13 MB/s / ~879 MB/s |
 
-> *Note: All metrics above represent physical empirical benchmarks executed on uncompressed real-world production datasets (including NASA/STScI JWST sensor observations, high-density CAM toolpaths, raw LiDAR coordinates, and industrial telemetry). Zero synthetic interpolation.*
+> *Methodology: every row above was measured on 2026-09-03 by running the data through the public `KolmoXPipeline.compress_bytes()` / `decompress_bytes()` API - the same path a user gets - with a bit-exact roundtrip assertion on each. Figures produced by calling engine classes directly, outside the pipeline, are not reported here: they omit the 24-byte KMX2 container header and bypass the adaptive competitive fallback. Every † row is reproducible with `python benchmarks/benchmark_extended.py`, which regenerates each dataset from a fixed seed and re-asserts every roundtrip. Compression ratios are deterministic; the throughput columns are single-run samples and vary by roughly ±15% between runs.*
+>
+> † *Synthetic dataset, generated programmatically. Only the Astrophysics FITS row uses a real-world production capture (a 117 MB NASA/STScI JWST MIRI observation of the Carina Nebula, compressed whole-file through the automatic domain router). Extracting just the pixel plane with astropy and compressing that instead yields 1.26x → 1.61x (+21.41%).*
+>
+> ¹ *The LiDAR dataset is a deterministic arithmetic ramp, which is why even the plain Zstd baseline reaches 27.11x. It demonstrates the transform works, but it is **not** representative of real scanner output - treat this row as a mechanism check, not a performance claim.*
+>
+> ² *A 40 KB synthetic instruction stream; at that size the throughput timings are dominated by measurement noise.*
+>
+> *Domain gains depend on the data actually having the structure the transform exploits. On a high-entropy input - a random-walk mesh with 6 decimals of noise per coordinate, or the x86 stream above - the transform yields nothing, the adaptive competitive fallback discards it, and the stored result is the plain Zstd baseline plus the 24-byte KMX2 header. The raster decompression figure (~2.4 MB/s) reflects a pure-Python pixel loop whose sequential dependency has not yet been ported to the C extension; it is the current honest number, not a target.*
 
 ## Installation & Setup
 
