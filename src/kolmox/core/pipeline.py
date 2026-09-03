@@ -29,11 +29,12 @@ KMX2_VERSION = 0x0110
 
 
 class KolmoXPipeline:
-    def __init__(self, chunk_size: int = 65536, compression_level: int = 3):
+    def __init__(self, chunk_size: int = 65536, compression_level: int = 3, allow_code_execution: bool = False):
         self.chunk_size = chunk_size
         self.compression_level = compression_level
         self.cctx = zstd.ZstdCompressor(level=compression_level)
         self.dctx = zstd.ZstdDecompressor()
+        self.allow_code_execution = allow_code_execution
 
     def _calc_delta(self, raw_data: bytes, predicted_data: bytes) -> bytes:
         if hasattr(DeltaHandler, "compute_delta"):

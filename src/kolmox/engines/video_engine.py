@@ -55,13 +55,10 @@ class VideoEngine:
             raise ValueError("Payload size mismatch with frame dimensions")
 
         delta_buffer = np.frombuffer(delta_data, dtype=np.uint8).reshape((num_frames, frame_size))
-        
-        # Ricostruzione cumulativa XOR
-        restored = np.empty_like(delta_buffer)
-        restored[0] = delta_buffer[0]
 
-        for i in range(1, num_frames):
-            np.bitwise_xor(restored[i - 1], delta_buffer[i], out=restored[i])
+        # Ricostruzione cumulativa XOR (vettorizzata: restored[i] è lo XOR
+        # cumulativo di delta[0..i], equivalente al loop precedente).
+        restored = np.bitwise_xor.accumulate(delta_buffer, axis=0)
 
         return [restored[i].tobytes() for i in range(num_frames)]
 
