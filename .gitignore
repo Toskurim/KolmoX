@@ -24,3 +24,8 @@ output_*
 bench_*.py
 test_*.py
 !tests/test_*.py
+
+# Script del batch 02/09/2026 12:33 messi in quarantena: scrivevano numeri di
+# benchmark hardcoded nel README/whitepaper senza misurare nulla. Conservati
+# fuori dalla working tree per audit, non vanno eseguiti.
+_quarantine_02_09_batch/
