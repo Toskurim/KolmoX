@@ -186,6 +186,44 @@ remains; `TODO.md` records it, along with the fact that the diagnosis published
 yesterday for this defect was itself wrong - it had been inferred from the first
 few lines of the file rather than from all 4,704.
 
+### Added — CSV field delimiter is detected, not assumed
+
+`ColumnarTextEngine` split on a hardcoded comma. A European-locale CSV uses the
+semicolon for fields and the comma for decimals, so the demux was splitting the
+decimals apart and producing ragged rows.
+
+| Dataset | before | after |
+| :--- | ---: | ---: |
+| Real CSV, semicolon-delimited (UCI air quality) | +11.51% | **+26.29%** |
+| Real CSV, comma-delimited (UCI appliances) | +24.85% | +24.85% |
+| Synthetic CSV | +44.24% | +44.24% |
+
+The 14.78 points recovered are exactly what the diagnosis had predicted.
+Nothing else moves: detection selects the comma for the other two datasets, so
+their code path is byte-identical to before.
+
+The heuristic picks the candidate producing the **fewest distinct field-count
+shapes** across a sample of lines, which is the signal that proved reliable on
+real data - the semicolon yields 2 shapes on that file where the comma yields 5.
+
+**One constraint in that heuristic looks arbitrary and is not: the most frequent
+field count must be at least 2.** Without it, a delimiter that does not occur in
+the file at all produces exactly one shape - the best possible score - and would
+therefore win on every input. Tab and pipe would have beaten the correct answer
+on every file. Their measured results (-0.03% and -0.01%) were the signature of
+"no transformation happened", not of a good delimiter.
+
+Detection operates entirely on bytes and never decodes. The heuristic was
+salvaged from `TextColumnarEngine.is_tabular_text`, retired two releases ago,
+and only the detection logic was taken: that module decoded with
+`errors="replace"`, which destroys non-UTF-8 bytes irreversibly.
+
+**No sub-format version bump was needed.** The delimiter was already stored in
+the primary header, at byte 1, and `inverse` reads it back rather than assuming
+it. Containers written before this change carry a comma and still decode as a
+comma; containers written now carry whatever was detected. Two tests pin that
+property, since the fix leans on it.
+
 ### Fixed — latent corruption in the G-code coordinate format
 
 Independent of the dialect work above, and **present in released versions**:
@@ -206,9 +244,12 @@ format still decode, covered by
 ### Fixed
 
 - The two long-standing failing tests now pass by opting in explicitly. The
-  suite is **80/80 green** (56 before this change, plus 24 covering nine G-code
-  dialects, the N-word column, modal lines, parametric expressions left in
-  place, `G10`/`G17` not being mistaken for moves, and legacy sidecars).
+  suite is **117/117 green**: 56 before this release, plus 24 covering nine
+  G-code dialects (the N-word column, modal lines, parametric expressions left
+  in place, `G10`/`G17` not being mistaken for moves, legacy sidecars) and 37
+  covering delimiter detection (each candidate, the European `;`-with-`,`
+  case, absent delimiters, non-UTF-8 bytes, CRLF, trailing empty columns,
+  ragged rows, and backward compatibility of stored delimiters).
 - `generate_whitepaper_pdf.py` gained an eight-column width profile, and the
   new footnote markers use ASCII `(a)`-`(d)` rather than superscript digits:
   U+2075 and up fall outside WinAnsiEncoding and render as black boxes in the

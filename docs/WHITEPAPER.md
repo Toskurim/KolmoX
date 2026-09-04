@@ -80,22 +80,27 @@ The pattern it reveals is worth stating plainly. Where the parser recognises the
 real data the gain holds - FITS retains +14.83% against +16.31% on its synthetic
 counterpart, and a well-formed CSV retains +24.85%. Where it does not, the gain
 collapses and the adaptive competitive fallback correctly stores a plain Zstd
-encoding instead. Every collapse observed so far traces to a narrow, identified
-parsing defect rather than to a limit of structural preconditioning, and two
-have since been measured and diagnosed - the G-code case partly repaired, moving
-that row from -0.06% to +21.93%. The footnotes qualify that figure: it arises
-from a source that does not generalise as readily as the number implies.
+encoding instead.
+
+Two domains collapsed when this benchmark was first run, and both proved to be
+defects of dialect recognition rather than limits of structural preconditioning.
+Neither was repaired by strengthening a transform; in both cases the existing
+transform merely began to see the file's actual shape. G-code moved from -0.06%
+to +21.93% once attached line numbers and modal commands were handled, and the
+semicolon-delimited CSV moved from +11.51% to +26.29% once the delimiter was
+inferred rather than assumed. The footnotes qualify the former: it improves for
+a reason that generalises less readily than the figure implies.
 
 | Dataset | Source | License | Size | Baseline (Zstd L3) | KolmoX | Gain | Outcome |
 | :--- | :--- | :--- | ---: | ---: | ---: | ---: | :--- |
 | **Astrophysics FITS** (JWST SMACS 0723) | MAST / STScI | Public domain | 35.0 MB | 1.76x | **2.07x** | **+14.83%** | transform used |
 | **Industrial Telemetry** (clean CSV) | UCI ML Repository | CC BY 4.0 | 11.4 MB | 6.02x | **8.01x** | **+24.85%** | transform used |
-| **Industrial Telemetry** (semicolon CSV) | UCI ML Repository | CC BY 4.0 | 0.8 MB | 3.04x | **3.44x** | **+11.51%** | transform used (a) |
+| **Industrial Telemetry** (semicolon CSV) | UCI ML Repository | CC BY 4.0 | 0.8 MB | 3.04x | **4.13x** | **+26.29%** | transform used (a) |
 | **CNC G-Code** (LinuxCNC) | LinuxCNC | GPL-2.0 (b) | 0.2 MB | 4.79x | **6.13x** | **+21.93%** | transform used (c) |
 | **CAD Mesh** (binary STL, WVS) | Zenodo 5034614 | CC0 | 3.1 MB | 1.86x | 1.86x | **-0.00%** | fallback (d) |
 | **CAD Mesh** (binary STL, Ambulacral) | Zenodo 5034614 | CC0 | 0.7 MB | 2.57x | 2.56x | **-0.01%** | fallback (d) |
 
-> (a) *Semicolon-delimited with commas as decimal separators. The columnar demux assumes commas, splitting the decimals and producing ragged rows. Measured with the correct delimiter the same file yields **+26.30%**: 14.78 points forfeited to a delimiter that is detectable rather than assumed.*
+> (a) *Semicolon-delimited with commas as decimal separators, as European locales write them. The demux previously assumed commas, splitting the decimals and producing ragged rows, and this row read **+11.51%**. The delimiter is now inferred from the data, recovering the full 14.78 points the diagnosis had predicted. The improvement is not a stronger transform but the same transform correctly recognising the file's dialect - the second of the two collapses this benchmark exposed, both now closed. The clean CSV and the synthetic dataset are unchanged: detection selects the comma for them and the code path is byte-identical to before.*
 
 > (b) *Downloaded for local benchmarking only; the file carries an internal copyright notice and is not redistributed with this repository.*
 

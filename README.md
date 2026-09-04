@@ -78,26 +78,32 @@ python benchmarks/benchmark_real.py
 **How to read this table.** Where the parser recognises the real data, the gain
 holds: FITS keeps +14.83% against +16.31% on the synthetic equivalent, and a
 clean CSV keeps +24.85%. Where it does not, the gain collapses and the adaptive
-fallback correctly stores plain Zstd instead. Every collapse so far has traced
-to a narrow, identifiable parsing defect rather than to a limit of the approach
-- and two of them have since been measured, diagnosed and, in the G-code case,
-partly fixed. Read the footnotes: the G-code row in particular improved from
--0.06% to +21.93%, but for a reason that does not generalise the way the number
-suggests. We publish the failures next to the successes because the gap between
-them is the useful part.
+fallback correctly stores plain Zstd instead.
+
+Two domains collapsed when this benchmark was first run, and **both turned out
+to be dialect-recognition defects rather than limits of the approach**. Neither
+was fixed by improving a transform: in both cases the same transform simply
+started seeing the file's real shape. G-code went from -0.06% to +21.93% once
+attached line numbers and modal commands were handled, and the semicolon CSV
+went from +11.51% to +26.29% once the delimiter was detected instead of assumed.
+Read the footnotes before quoting either number - the G-code one in particular
+improves for a reason that does not generalise as far as the figure suggests.
+
+We publish the failures next to the successes because the gap between them is
+the useful part, and because it is what told us where to look.
 
 | Dataset | Source | License | Size | Baseline (Zstd L3) | KolmoX | Gain | Outcome |
 | :--- | :--- | :--- | ---: | ---: | ---: | ---: | :--- |
 | **Astrophysics FITS** (JWST SMACS 0723, MIRI f770w) | MAST / STScI | Public domain | 35.0 MB | 1.76x | **2.07x** | **+14.83%** | transform used |
 | **Industrial Telemetry** (appliances energy, clean CSV) | UCI ML Repository | CC BY 4.0 | 11.4 MB | 6.02x | **8.01x** | **+24.85%** | transform used |
-| **Industrial Telemetry** (air quality, semicolon CSV) | UCI ML Repository | CC BY 4.0 | 0.8 MB | 3.04x | **3.44x** | **+11.51%** | transform used, but see (a) |
+| **Industrial Telemetry** (air quality, semicolon CSV) | UCI ML Repository | CC BY 4.0 | 0.8 MB | 3.04x | **4.13x** | **+26.29%** | transform used (a) |
 | **CNC G-Code** (LinuxCNC `3D_Chips.ngc`) | LinuxCNC | GPL-2.0 (b) | 0.2 MB | 4.79x | **6.13x** | **+21.93%** | transform used, but read (c) |
 | **CAD Mesh** (binary STL, WVS) | Zenodo 5034614 | CC0 | 3.1 MB | 1.86x | 1.86x | **-0.00%** | **fallback** (d) |
 | **CAD Mesh** (binary STL, Ambulacral) | Zenodo 5034614 | CC0 | 0.7 MB | 2.57x | 2.56x | **-0.01%** | **fallback** (d) |
 
 > *Every row was measured through the same public API and bit-exact roundtrip assertion as the synthetic table. "fallback" means the domain transform lost against a plain Zstd encoding of the same input, so the pipeline stored the baseline: the residual cost is the 24-byte KMX2 header.*
 >
-> (a) *This file uses semicolons as the delimiter and commas as the decimal separator. The columnar demux assumes commas, so it splits the decimals and produces ragged rows. Measured with the correct delimiter the same file yields **+26.30%** instead of +11.51% - 14.78 points left on the table by a delimiter that is detectable rather than assumed.*
+> (a) *This file uses semicolons as the field delimiter and commas as the decimal separator, as European locales do. The demux used to assume commas, so it split the decimals and produced ragged rows: this row read **+11.51%**. The delimiter is now detected from the data rather than assumed, and the row reads **+26.29%** - the 14.78 points the diagnosis predicted, recovered in full. **The improvement is not a better transform; it is the same transform finally seeing the file's real dialect.** Together with the G-code row this closes both of the collapses that the real-world benchmark exposed. The clean CSV and the synthetic dataset are unchanged, since detection selects the comma for them and the path is byte-identical to before.*
 >
 > (b) *Downloaded for local benchmarking only. The file carries an internal copyright notice and is not redistributed with this repository.*
 >

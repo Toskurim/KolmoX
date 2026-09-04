@@ -153,7 +153,10 @@ class DomainRouter:
             return VideoEngine.compress_sequence(frames, width, height, channels), b""
         elif domain == DomainType.TELEMETRY_CSV:
             # Righe uniformi separate da virgola: basta la forma (numero di campi).
-            return ColumnarTextEngine.transform(raw_data, b",", group_by_first_token=False)
+            # delimiter=None: rilevato dai dati. Un CSV di locale europeo usa
+            # il punto e virgola per i campi e la virgola per i decimali;
+            # assumere la virgola spezzava i decimali e costava 14.78 punti.
+            return ColumnarTextEngine.transform(raw_data, None, group_by_first_token=False)
         elif domain == DomainType.CAD_MESH_OBJ:
             # OBJ mescola tipi di riga diversi (v / vn / f / #): il token iniziale
             # fa parte della forma, cosi' i piani dei vertici restano separati.

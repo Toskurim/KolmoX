@@ -22,10 +22,63 @@ class ColumnarTextEngine:
     CLASS_META_FMT = "<III"
     CLASS_META_LEN = 12
 
+    # Separatori di campo plausibili, in ordine di preferenza a parita' di
+    # punteggio. La virgola resta il default storico.
+    DELIMITER_CANDIDATES = (b",", b";", b"\t", b"|")
+    DETECT_SAMPLE_LINES = 400
+
+    @classmethod
+    def detect_delimiter(cls, raw_data: bytes,
+                         candidates: Tuple[bytes, ...] = None) -> bytes:
+        """Sceglie il separatore di campo osservando la struttura, non
+        assumendola.
+
+        Il criterio e' quello che si e' rivelato affidabile sui dati reali:
+        a parita' di condizioni vince il separatore che produce **meno classi
+        di forma**, cioe' il conteggio di campi piu' uniforme fra le righe. Su
+        AirQualityUCI.csv la virgola ne produce 5 (perche' spezza i decimali
+        del locale europeo) e il punto e virgola 2, di cui una copre 9.472
+        righe su 9.473.
+
+        Un candidato che non compare affatto darebbe una sola classe, cioe' il
+        punteggio migliore: viene quindi scartato richiedendo che il conteggio
+        di campi piu' frequente sia almeno 2.
+
+        Lavora interamente a livello di byte. Nessuna decodifica: il modulo che
+        ospitava questa euristica prima decodificava con errors="replace" e
+        distruggeva irreversibilmente i byte non-UTF8.
+        """
+        candidates = candidates or cls.DELIMITER_CANDIDATES
+        sample = [ln for ln in raw_data.split(b"\n")[: cls.DETECT_SAMPLE_LINES] if ln]
+        if not sample:
+            return candidates[0]
+
+        best = None
+        for delim in candidates:
+            counts = {}
+            for ln in sample:
+                n = ln.count(delim) + 1
+                counts[n] = counts.get(n, 0) + 1
+            modal_fields = max(counts, key=lambda n: counts[n])
+            if modal_fields < 2:
+                continue                       # il separatore non compare
+            # meno classi e' meglio; a parita', piu' campi e' meglio
+            score = (len(counts), -modal_fields)
+            if best is None or score < best[0]:
+                best = (score, delim)
+
+        return best[1] if best else candidates[0]
+
     @classmethod
     def transform(
-        cls, raw_data: bytes, delimiter: bytes, group_by_first_token: bool = False
+        cls, raw_data: bytes, delimiter: bytes = None, group_by_first_token: bool = False
     ) -> Tuple[bytes, bytes]:
+        # Il separatore finisce nell'header del primary, quindi la
+        # decompressione lo ritrova da sola: rilevarlo qui non cambia il
+        # formato e i container gia' scritti restano leggibili.
+        if delimiter is None:
+            delimiter = cls.detect_delimiter(raw_data)
+
         lines = raw_data.split(b"\n")
         if len(lines) < cls.MIN_LINES:
             raise ValueError("Too few lines for columnar demux")
