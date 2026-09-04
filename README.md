@@ -24,7 +24,11 @@ We live in an era where data generation has outpaced network bandwidth and stora
 * **Smart Manufacturing & Industry 4.0**: Robotics, CNC machining, 3D additive manufacturing, and autonomous vehicle LiDAR streams churn out terabytes of continuous telemetry daily. Squeezing columnar telemetry by up to +44.24% drastically cuts cloud egress bills and edge-to-cloud transmission latency.
 * **Lossless is Non-Negotiable**: In medical imaging, astrophysics, engineering CAD, industrial telemetry, and legal compliance, lossy compression artifacts are unacceptable. KolmoX proves that "lossless" doesn't have to mean "poor compression ratios".
 
-## Real-World Benchmark Results
+## Benchmark Results by Domain
+
+One row per supported domain, measured at Zstd levels 3 and 19. Most datasets
+are synthetic (marked †); see [Real-World Data Benchmark](#real-world-data-benchmark)
+below for results on downloadable public datasets.
 
 All tests certify exact mathematical data restoration (zero precision loss, bit-exact roundtrip):
 
