@@ -119,6 +119,46 @@ provenance.
 
 ---
 
+## Project Status and Known Limitations
+
+KolmoX is young and under active development; further domains, wider coverage of
+real-world dialects, and performance work are ongoing. The limitations below are
+stated rather than omitted, and each is tracked in the repository's `TODO.md`
+alongside the measurements that established it.
+
+**LiDAR and Audio have no real-world benchmark.** No public source was found
+combining a suitable license with a format usable without additional
+dependencies; both appear in the synthetic table alone.
+
+**Raster decoding runs at approximately 2.4 MB/s.** The unfilter step carries an
+inherent sequential dependency, each pixel requiring its already-reconstructed
+neighbour, so it resists NumPy vectorisation and has not yet been ported to the
+C extension. Encoding is vectorised at roughly 95 MB/s.
+
+**G-code parametric expressions are not extracted.** Where a file writes
+`Y[#<yscale>*53.293]` in place of a literal, the coordinate remains inside the
+template. Whether to model that dialect awaits a second real G-code file of
+different provenance, so that the decision does not rest on one example.
+
+**STEP files are not routed.** `MeshCADEngine` parses the format, but
+`detect_domain()` does not recognise it.
+
+**Binary STL yields no gain**, and measurement indicates this is correct rather
+than remediable: two structural transforms were attempted and both proved
+substantially worse than plain Zstandard, because adjacent triangles share
+vertices and transposition destroys the local redundancy LZ77 exploits.
+
+Every figure in this document is produced by executing the code, never written
+by hand. The synthetic table is reproducible with
+`python benchmarks/benchmark_extended.py`, the real-world table with
+`python benchmarks/download_datasets.py` followed by
+`python benchmarks/benchmark_real.py` (~52 MB of download). Both assert a
+bit-exact roundtrip on every domain and exit non-zero should any fail. Cases in
+which a transform loses to plain Zstandard are published alongside those in
+which it wins.
+
+---
+
 ## Domain Transform Specifications & Formal Theory
 
 ### 1. Astrophysics FITS & Multidimensional Tensor Modeling

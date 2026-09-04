@@ -120,6 +120,40 @@ external dependencies. **Audio**: no source with direct WAV files at a
 reasonable size - the smallest real option costs 157 MB of network transfer for
 a single usable file.
 
+## Project Status
+
+KolmoX is young and under active development. More domains, wider coverage of
+real-world dialects, and performance work are all in progress.
+
+**Known limitations are stated rather than omitted**, and each is tracked in
+[TODO.md](TODO.md) with the measurements behind it:
+
+- **LiDAR and Audio have no real-world benchmark.** No public source was found
+  that combines a suitable license with a format usable without extra
+  dependencies. Both appear in the synthetic table only, and the gap is declared
+  in the real-world one.
+- **Raster decoding runs at roughly 2.4 MB/s.** The unfilter step has an
+  inherent sequential dependency - each pixel needs its already-reconstructed
+  neighbour - so it cannot be vectorised in NumPy and has not yet been ported to
+  the C extension. Encoding is vectorised and runs at about 95 MB/s.
+- **G-code parametric expressions are not extracted.** Where a file writes
+  `Y[#<yscale>*53.293]` instead of a literal, the coordinate stays inside the
+  template. Deciding whether to handle that dialect is waiting on a second real
+  G-code file from a different origin, so that the choice is not made from a
+  single example.
+- **STEP files are not routed.** `MeshCADEngine` can parse them, but
+  `detect_domain()` does not recognise the format.
+- **Binary STL gains nothing**, and measurement suggests that is correct rather
+  than fixable: two structural transforms were tried and both were substantially
+  worse than plain Zstd. The adaptive fallback handles it.
+
+Every published figure is produced by running the code, never written by hand.
+The synthetic table is reproducible with `python benchmarks/benchmark_extended.py`
+and the real-world table with `python benchmarks/download_datasets.py &&
+python benchmarks/benchmark_real.py`, about 52 MB of download. Both assert a
+bit-exact roundtrip on every domain and exit non-zero if any fails. Where a
+transform loses to plain Zstd, that is published too.
+
 ## Code Synthesis: Unsafe by Design, Opt-In Only
 
 KolmoX carries a legacy compression path that stores a small Python generator
