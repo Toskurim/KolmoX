@@ -2,6 +2,52 @@
 
 Ultimo aggiornamento: 2026-09-03.
 
+## Prosa introduttiva rimasta indietro (2026-09-04)
+
+Audit sistematico di README, whitepaper e questo file, alla ricerca di titoli,
+abstract e paragrafi di orientamento non più aderenti a ciò che descrivono.
+
+**Il punto che rende questa voce utile: sono tutti in blockquote, abstract,
+note di apertura e righe di intestazione.** Nessuno in una tabella o in un
+numero di benchmark. È precisamente la zona che gli script di verifica non
+toccano — controllano i valori dentro gli artefatti, non se il testo attorno li
+descrive ancora bene. Il titolo "Real-World Benchmark Results" su una tabella
+sintetica all'83% era sopravvissuto a tre sessioni di correzioni proprio così.
+
+### Risolti (README, 2026-09-04)
+
+1. ~~Blockquote di posizionamento: raccomandava di usare le engine classes
+   direttamente in produzione, citando `FitsEngine` che è orfano, e
+   contraddicendo la nota metodologica quaranta righe sotto, che dichiara non
+   riportabili le cifre ottenute così.~~ Ora raccomanda `KolmoXPipeline`.
+2. ~~Link al whitepaper PDF rotto: puntava a `_v1.1.0_`, rinominato due volte,
+   ora `_v1.3.0_`.~~
+3. ~~"33-test validation suite" → 117.~~
+
+### Da fare, insieme alla rigenerazione del PDF
+
+**Whitepaper** (comportano rigenerare l'artefatto):
+
+4. Nota di correzione, righe 12-14: *"All eleven rows... Ten of the eleven"*.
+   La tabella ha **12 righe** da quando è stata aggiunta quella del gameplay
+   reale.
+5. Abstract, riga 25: *"across 11 distinct domains"*, stesso disallineamento.
+   In più cita `+64.10%` per il G-code come cifra di punta: è il valore
+   **sintetico**, mentre sul file reale lo stesso dominio dà +21.93%. Non è
+   falso, ma nell'abstract manca la qualificazione che nella tabella c'è.
+6. Riga 5: `*Date:* August 2026`, mentre il documento contiene una nota di
+   correzione datata 2026-09-03 e misure del 04.
+
+**TODO.md** (questo file):
+
+7. Riga 3: "Ultimo aggiornamento: 2026-09-03", mentre contiene sezioni del 04.
+8. Il paragrafo di apertura della sezione qui sotto presenta CSV e G-Code come
+   "le due voci a priorità più alta": **entrambe sono state risolte il
+   2026-09-04**. Va riscritto o spostato sotto le voci ancora aperte.
+9. "Suite ora 56/56" in fondo: superato due volte (80, poi 117).
+
+---
+
 ## Difetti di parsing scoperti sui dati reali (2026-09-04)
 
 Sono le due voci a priorità più alta: entrambe fanno **crollare a zero** un

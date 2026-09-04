@@ -5,7 +5,7 @@
 > **Architectural Positioning**: KolmoX is **not** a general-purpose replacement for Zstandard, Snappy, or Deflate. 
 > Exactly as the PNG Delta Filter or the FLAC Mid/Side Decorrelator operate ahead of Deflate, KolmoX is a **domain-specific structural preconditioner**. It linearizes physical coordinates, IEEE-754 mantissas, and multi-dimensional matrices *before* entropy coding, eliminating topological correlations that sliding-window (LZ77) engines cannot detect.
 >
-> For production workloads, use the dedicated engine classes directly (`FitsEngine`, `ScientificFloatEngine`, `GCodeEngine`, etc.). An **Adaptive Competitive Fallback** ensures KolmoX output is mathematically guaranteed never to exceed plain Zstandard.
+> For production workloads use `KolmoXPipeline.compress_bytes()` / `decompress_bytes()`. That is the path every published figure is measured on, and the only one that emits a KMX2 container and applies the **Adaptive Competitive Fallback**: each domain transform competes against a plain Zstandard encoding of the same input and the smaller of the two is stored, so a transform can never make the payload meaningfully larger. The residual cost when a transform loses is the 24-byte container header - measured at -0.46% on a high-entropy input. Calling an engine class directly bypasses both, which is why figures obtained that way are not reported here.
 
 ---
 
@@ -238,7 +238,7 @@ with open("large_scan.xyz", "rb") as src, open("large_scan.kmxs", "wb") as dst:
 
 ## Testing & Fuzz Resilience
 
-KolmoX includes a 33-test validation suite covering end-to-end roundtrips, C-ABI equivalence, astrophysics FITS preconditioning, and fuzz resilience against malformed or truncated data:
+KolmoX includes a 117-test validation suite covering end-to-end roundtrips, C-ABI equivalence, astrophysics FITS preconditioning, and fuzz resilience against malformed or truncated data:
 
 ```bash
 pytest tests/ -v
@@ -246,7 +246,7 @@ pytest tests/ -v
 
 ## Technical Whitepaper
 
-A full academic whitepaper detailing the Kolmogorov complexity foundations, KMX2 container specification, and mathematical transforms is available in `docs/WHITEPAPER.md` and as a downloadable PDF in `docs/KolmoX_Technical_Paper_v1.1.0_Complete_EN.pdf`.
+A full academic whitepaper detailing the Kolmogorov complexity foundations, KMX2 container specification, and mathematical transforms is available in `docs/WHITEPAPER.md` and as a downloadable PDF in `docs/KolmoX_Technical_Paper_v1.3.0_Complete_EN.pdf`.
 
 ## License
 
