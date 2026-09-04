@@ -77,20 +77,21 @@ python benchmarks/benchmark_real.py
 
 **How to read this table.** Where the parser recognises the real data, the gain
 holds: FITS keeps +14.83% against +16.31% on the synthetic equivalent, and a
-clean CSV keeps +24.85%. Where the parser does *not* recognise it, the gain
-collapses to zero and the adaptive fallback correctly stores plain Zstd instead.
-Both collapses trace to specific, narrow parsing defects, not to limits of the
-approach: real G-code prefixes line numbers (`N101 G1 X...`), which the engine
-does not strip, and this CSV uses semicolons where the demux assumes commas.
-Both are diagnosed with measured numbers in [TODO.md](TODO.md). We publish the
-failures next to the successes because the gap between them is the useful part.
+clean CSV keeps +24.85%. Where it does not, the gain collapses and the adaptive
+fallback correctly stores plain Zstd instead. Every collapse so far has traced
+to a narrow, identifiable parsing defect rather than to a limit of the approach
+- and two of them have since been measured, diagnosed and, in the G-code case,
+partly fixed. Read the footnotes: the G-code row in particular improved from
+-0.06% to +21.93%, but for a reason that does not generalise the way the number
+suggests. We publish the failures next to the successes because the gap between
+them is the useful part.
 
 | Dataset | Source | License | Size | Baseline (Zstd L3) | KolmoX | Gain | Outcome |
 | :--- | :--- | :--- | ---: | ---: | ---: | ---: | :--- |
 | **Astrophysics FITS** (JWST SMACS 0723, MIRI f770w) | MAST / STScI | Public domain | 35.0 MB | 1.76x | **2.07x** | **+14.83%** | transform used |
 | **Industrial Telemetry** (appliances energy, clean CSV) | UCI ML Repository | CC BY 4.0 | 11.4 MB | 6.02x | **8.01x** | **+24.85%** | transform used |
 | **Industrial Telemetry** (air quality, semicolon CSV) | UCI ML Repository | CC BY 4.0 | 0.8 MB | 3.04x | **3.44x** | **+11.51%** | transform used, but see (a) |
-| **CNC G-Code** (LinuxCNC `3D_Chips.ngc`) | LinuxCNC | GPL-2.0 (b) | 0.2 MB | 4.79x | 4.78x | **-0.06%** | **fallback** (c) |
+| **CNC G-Code** (LinuxCNC `3D_Chips.ngc`) | LinuxCNC | GPL-2.0 (b) | 0.2 MB | 4.79x | **6.13x** | **+21.93%** | transform used, but read (c) |
 | **CAD Mesh** (binary STL, WVS) | Zenodo 5034614 | CC0 | 3.1 MB | 1.86x | 1.86x | **-0.00%** | **fallback** (d) |
 | **CAD Mesh** (binary STL, Ambulacral) | Zenodo 5034614 | CC0 | 0.7 MB | 2.57x | 2.56x | **-0.01%** | **fallback** (d) |
 
@@ -100,7 +101,7 @@ failures next to the successes because the gap between them is the useful part.
 >
 > (b) *Downloaded for local benchmarking only. The file carries an internal copyright notice and is not redistributed with this repository.*
 >
-> (c) *`GCodeEngine` matches lines beginning with `G1 `, but real G-code prefixes RS-274/NGC line numbers (`N101 G1 X...`). The transform extracts nothing - it returns a 200,509-byte template and 7 bytes of coordinates - so the 16 bytes of overhead lose the comparison. The synthetic dataset scored +64.10% on this domain because its generator emitted no line numbers.*
+> (c) **The gain comes from line numbers, not coordinates - do not read this row as "G-code preconditioning works on real files".** *On this file the engine extracts `X=0, Y=0, Z=0, N=4691`: zero coordinates. The 4,691 extracted values are RS-274/NGC line numbers, which are metadata; collapsing them out of the template is what produces the +21.93%. The coordinates - the actual payload, 4,684 values - stay untouched, because this file expresses them as parametric expressions (`Y[#<yscale>*53.293]`) rather than literals, and the engine deliberately does not parse that dialect's expression syntax. Measurable headroom therefore remains on this file. Before the fix this row read -0.06% with the transform discarded: the engine matched only lines beginning with `G1 `, whereas 4,690 of 4,691 lines here prefix the line number with no separating space and omit the G-word entirely (modal G-code). Both of those are now handled. See [TODO.md](TODO.md), where the earlier, incorrect diagnosis is also recorded.*
 >
 > (d) *Confirmed by measurement, and the two obvious fixes were tested and rejected: transposing at the 50-byte record stride costs -32.21%, and float-aware byte-plane slicing costs -31.60%. Adjacent triangles in an STL share vertices, so the raw stream carries local redundancy that LZ77 exploits and any transposition destroys. On this data the fallback is already making the right choice.*
 

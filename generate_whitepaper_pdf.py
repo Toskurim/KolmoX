@@ -46,6 +46,35 @@ class NumberedCanvas(canvas.Canvas):
         self.line(54, 46, 8.5 * 72 - 54, 46)
         self.restoreState()
 
+def inline_markup(text):
+    """Converte **grassetto** e *corsivo* in tag reportlab.
+
+    Protegge il contenuto fra backtick prima di applicare le regex: un
+    asterisco dentro `Y[#<yscale>*53.293]` veniva altrimenti scambiato per un
+    delimitatore di corsivo, corrompendo il testo in silenzio nel PDF mentre su
+    GitHub appariva corretto.
+    """
+    spans = []
+
+    def stash(m):
+        spans.append(m.group(1))
+        return f"\x00{len(spans) - 1}\x00"
+
+    def escape(s):
+        # Obbligatorio prima di inserire i nostri tag: reportlab interpreta il
+        # markup, quindi un `#<yscale>` del sorgente veniva letto come tag
+        # sconosciuto e scartato in silenzio, sparendo dal PDF.
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    text = re.sub(r"`([^`]*)`", stash, text)
+    text = escape(text)
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"<i>\1</i>", text)
+    for i, span in enumerate(spans):
+        text = text.replace(f"\x00{i}\x00", escape(span))
+    return text
+
+
 def build_pdf(md_path, pdf_path):
     with open(md_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
@@ -187,8 +216,7 @@ def build_pdf(md_path, pdf_path):
             for r_idx, row in enumerate(table_data):
                 fmt_row = []
                 for cell in row:
-                    clean_cell = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", cell)
-                    clean_cell = re.sub(r"\*(.*?)\*", r"<i>\1</i>", clean_cell)
+                    clean_cell = inline_markup(cell)
                     st = table_cell_hdr if r_idx == 0 else table_cell
                     fmt_row.append(Paragraph(clean_cell, st))
                 t_rows.append(fmt_row)
@@ -242,15 +270,11 @@ def build_pdf(md_path, pdf_path):
         elif raw.startswith("### "):
             story.append(Paragraph(raw[4:].strip(), h2_style))
         elif raw.startswith("> "):
-            clean_b = raw[2:].strip()
-            clean_b = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", clean_b)
-            clean_b = re.sub(r"\*(.*?)\*", r"<i>\1</i>", clean_b)
+            clean_b = inline_markup(raw[2:].strip())
             p_note = Paragraph(f"<i>{clean_b}</i>", body_style)
             story.append(p_note)
         else:
-            fmt = raw
-            fmt = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", fmt)
-            fmt = re.sub(r"\*(.*?)\*", r"<i>\1</i>", fmt)
+            fmt = inline_markup(raw)
             # LaTeX cleanup for basic PDF rendering
             fmt = fmt.replace("$$", "").replace("$", "")
             story.append(Paragraph(fmt, body_style))

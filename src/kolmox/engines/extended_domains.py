@@ -6,6 +6,7 @@ KolmoX Extended Domain Preconditioning Engines (v1.1.0)
 Bit-exact, high-throughput transforms with C-acceleration and NumPy fallback.
 """
 
+import re
 import struct
 import numpy as np
 from typing import Tuple, List
@@ -101,68 +102,122 @@ class GCodeEngine(BaseDomainEngine):
         sample = data[:1024].decode("utf-8", errors="ignore").upper()
         return "G1 " in sample or "G0 " in sample or "M104" in sample
 
-    @staticmethod
-    def transform(raw_data: bytes) -> Tuple[bytes, bytes]:
+    # Numero di riga RS-274/NGC. Nel G-code reale segue spesso direttamente la
+    # parola d'asse senza spazio: "N430X[...]" e non "N430 X...".
+    _N_WORD = re.compile(rb"^N(\d+)")
+    # G0/G1 espliciti, senza catturare G10/G17/...
+    _EXPLICIT_MOVE = re.compile(rb"^G[01](?![0-9])")
+    # Riga modale: il comando e' stato dichiarato prima e persiste, quindi la
+    # riga inizia direttamente con una parola d'asse.
+    _MODAL_MOVE = re.compile(rb"^[XYZ]")
+    # Un valore estraibile deve essere un numero letterale. Le espressioni
+    # parametriche di LinuxCNC (X[#<xscale>*52.972]) restano nel template:
+    # smontarle richiederebbe di modellare la sintassi di quel dialetto.
+    _NUMERIC = re.compile(rb"^[-+]?[0-9]*\.?[0-9]+$")
+
+    @classmethod
+    def _split_line_number(cls, line: bytes) -> Tuple[bytes, bytes]:
+        """Separa il numero di riga opzionale. Ritorna (numero o b"", resto)."""
+        m = cls._N_WORD.match(line)
+        if not m:
+            return b"", line
+        return m.group(1), line[m.end():]
+
+    @classmethod
+    def transform(cls, raw_data: bytes) -> Tuple[bytes, bytes]:
         lines = raw_data.split(b"\n")
         template_lines = []
-        vals_x, vals_y, vals_z = [], [], []
+        vals_x, vals_y, vals_z, vals_n = [], [], [], []
 
         for line in lines:
-            if line.startswith((b"G1 ", b"G0 ")):
-                parts = line.split(b" ")
+            n_val, body = cls._split_line_number(line)
+            is_move = bool(cls._EXPLICIT_MOVE.match(body) or cls._MODAL_MOVE.match(body))
+
+            if is_move:
                 new_parts = []
-                for p in parts:
-                    if p.startswith(b"X"):
-                        vals_x.append(p[1:])
-                        new_parts.append(b"X\x00")
-                    elif p.startswith(b"Y"):
-                        vals_y.append(p[1:])
-                        new_parts.append(b"Y\x00")
-                    elif p.startswith(b"Z"):
-                        vals_z.append(p[1:])
-                        new_parts.append(b"Z\x00")
+                for p in body.split(b" "):
+                    axis = p[:1]
+                    value = p[1:]
+                    if axis in (b"X", b"Y", b"Z") and cls._NUMERIC.match(value):
+                        {b"X": vals_x, b"Y": vals_y, b"Z": vals_z}[axis].append(value)
+                        new_parts.append(axis + b"\x00")
                     else:
                         new_parts.append(p)
-                template_lines.append(b" ".join(new_parts))
-            else:
-                template_lines.append(line)
+                body = b" ".join(new_parts)
+
+            if n_val:
+                vals_n.append(n_val)
+                body = b"N\x00" + body
+            template_lines.append(body)
 
         template = b"\n".join(template_lines)
-        coords = b"\n".join(vals_x + [b"---"] + vals_y + [b"---"] + vals_z)
-        return template, coords
+        return template, cls._pack_coords(vals_x, vals_y, vals_z, vals_n)
 
-    @staticmethod
-    def inverse(template: bytes, coords: bytes) -> bytes:
+    # Il vecchio formato separava le sezioni con una riga "---", ma si rompe
+    # quando una sezione e' vuota: b"---\n---\n---\n10".split(b"\n---\n") ne
+    # restituisce due invece di quattro. Il formato KMXG2 dichiara i conteggi
+    # in testa, quindi le sezioni vuote non sono ambigue. I coords scritti col
+    # vecchio schema restano leggibili.
+    COORDS_MAGIC = b"KMXG2"
+    _COORDS_HEADER_LEN = 5 + 16
+
+    @classmethod
+    def _pack_coords(cls, vals_x, vals_y, vals_z, vals_n) -> bytes:
+        counts = struct.pack(">IIII", len(vals_x), len(vals_y), len(vals_z), len(vals_n))
+        body = b"\n".join(vals_x + vals_y + vals_z + vals_n)
+        return cls.COORDS_MAGIC + counts + body
+
+    @classmethod
+    def _unpack_coords(cls, coords: bytes):
+        if coords.startswith(cls.COORDS_MAGIC):
+            nx, ny, nz, nn = struct.unpack(">IIII", coords[5:cls._COORDS_HEADER_LEN])
+            body = coords[cls._COORDS_HEADER_LEN:]
+            total = nx + ny + nz + nn
+            vals = body.split(b"\n") if total else []
+            i = 0
+            out = []
+            for n in (nx, ny, nz, nn):
+                out.append(vals[i:i + n])
+                i += n
+            return out
+
+        # Percorso legacy: sezioni separate da "---", nessun numero di riga.
+        sections = coords.split(b"\n---\n")
+        get = lambda k: sections[k].split(b"\n") if len(sections) > k and sections[k] else []
+        return [get(0), get(1), get(2), []]
+
+    @classmethod
+    def inverse(cls, template: bytes, coords: bytes) -> bytes:
         if not coords:
             return template
-        sections = coords.split(b"\n---\n")
-        vals_x = sections[0].split(b"\n") if len(sections) > 0 and sections[0] else []
-        vals_y = sections[1].split(b"\n") if len(sections) > 1 and sections[1] else []
-        vals_z = sections[2].split(b"\n") if len(sections) > 2 and sections[2] else []
+        vals_x, vals_y, vals_z, vals_n = cls._unpack_coords(coords)
 
-        ix, iy, iz = 0, 0, 0
-        lines = template.split(b"\n")
+        ix = iy = iz = i_n = 0
         out_lines = []
 
-        for line in lines:
-            if b"\x00" in line:
-                parts = line.split(b" ")
-                new_parts = []
-                for p in parts:
-                    if p == b"X\x00" and ix < len(vals_x):
-                        new_parts.append(b"X" + vals_x[ix])
-                        ix += 1
-                    elif p == b"Y\x00" and iy < len(vals_y):
-                        new_parts.append(b"Y" + vals_y[iy])
-                        iy += 1
-                    elif p == b"Z\x00" and iz < len(vals_z):
-                        new_parts.append(b"Z" + vals_z[iz])
-                        iz += 1
-                    else:
-                        new_parts.append(p)
-                out_lines.append(b" ".join(new_parts))
-            else:
+        for line in template.split(b"\n"):
+            if b"\x00" not in line:
                 out_lines.append(line)
+                continue
+
+            prefix = b""
+            if line.startswith(b"N\x00"):
+                if i_n < len(vals_n):
+                    prefix = b"N" + vals_n[i_n]
+                    i_n += 1
+                line = line[2:]
+
+            new_parts = []
+            for p in line.split(b" "):
+                if p == b"X\x00" and ix < len(vals_x):
+                    new_parts.append(b"X" + vals_x[ix]); ix += 1
+                elif p == b"Y\x00" and iy < len(vals_y):
+                    new_parts.append(b"Y" + vals_y[iy]); iy += 1
+                elif p == b"Z\x00" and iz < len(vals_z):
+                    new_parts.append(b"Z" + vals_z[iz]); iz += 1
+                else:
+                    new_parts.append(p)
+            out_lines.append(prefix + b" ".join(new_parts))
 
         return b"\n".join(out_lines)
 

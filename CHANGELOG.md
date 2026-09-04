@@ -155,10 +155,60 @@ fallback is already selecting correctly. The entry now records both failed
 attempts with their numbers so nobody repeats them. STEP remains genuinely
 unrouted and unmeasured.
 
+### Added — G-code dialects: attached line numbers and modal commands
+
+`GCodeEngine` matched only lines beginning with `G1 ` or `G0 `. Two constructs
+that are standard RS-274/NGC, and dominant in the real file benchmarked here,
+were invisible to it:
+
+- **Line numbers with no separating space** (`N430X10.5` rather than
+  `N430 G1 X10.5`): 4,690 of 4,691 lines in the real file. The line number is
+  now extracted into a column of its own, because it changes on every line and
+  would otherwise keep the template unique per line and incompressible.
+- **Modal commands**, where the G-word is declared once and subsequent lines
+  carry only axis words: 4,681 of 4,691 lines.
+
+| | before | after |
+| :--- | ---: | ---: |
+| G-code, real (LinuxCNC) | -0.06%, transform discarded | **+21.93%**, transform used |
+| G-code, synthetic | +64.10% | +64.07% |
+
+The 0.03 regression on the synthetic dataset is the 21-byte header of the new
+coordinate format.
+
+**The real-file gain comes from line numbers, not coordinates.** The engine
+extracts `X=0, Y=0, Z=0, N=4691` on that file: the coordinates are parametric
+expressions (`Y[#<yscale>*53.293]`) and remain untouched by design, since
+parsing them would mean modelling one dialect's expression syntax. The figure
+should not be read as "G-code preconditioning transfers to real files", and
+both the README and the whitepaper say so at the row. Measurable headroom
+remains; `TODO.md` records it, along with the fact that the diagnosis published
+yesterday for this defect was itself wrong - it had been inferred from the first
+few lines of the file rather than from all 4,704.
+
+### Fixed — latent corruption in the G-code coordinate format
+
+Independent of the dialect work above, and **present in released versions**:
+the coordinate sidecar separated its sections with a `---` line, which is
+ambiguous when a section is empty. Consecutive separators overlap, so
+
+```
+b"---\n---\n---\n10".split(b"\n---\n")  ->  2 sections, not 4
+```
+
+A G-code file with no X values would therefore have mis-parsed on
+decompression under the previous code as well; the defect was not introduced by
+this change, only exposed by it. Sections are now length-prefixed behind a
+`KMXG2` marker, so empty ones are unambiguous. Sidecars written in the old
+format still decode, covered by
+`test_legacy_three_section_coords_still_decode`.
+
 ### Fixed
 
 - The two long-standing failing tests now pass by opting in explicitly. The
-  suite is **56/56 green**.
+  suite is **80/80 green** (56 before this change, plus 24 covering nine G-code
+  dialects, the N-word column, modal lines, parametric expressions left in
+  place, `G10`/`G17` not being mistaken for moves, and legacy sidecars).
 - `generate_whitepaper_pdf.py` gained an eight-column width profile, and the
   new footnote markers use ASCII `(a)`-`(d)` rather than superscript digits:
   U+2075 and up fall outside WinAnsiEncoding and render as black boxes in the

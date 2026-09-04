@@ -34,26 +34,66 @@ minimizza le classi di forma" è un segnale netto. L'euristica esisteva già in
 cercando conteggi costanti. Quel modulo è stato ritirato perché non bit-exact,
 ma **l'euristica del separatore era la parte buona** ed è da recuperare.
 
-### G-Code — supportare le N-word (numeri di riga RS-274/NGC)
+### ~~G-Code — supportare le N-word~~ — PARZIALMENTE FATTO il 2026-09-04
 
-`GCodeEngine.transform` cerca righe che **iniziano** con `G1 `. Il G-code reale
-prefissa quasi sempre il numero di riga (`N101 G1 X... Y... Z...`), che è
-standard RS-274/NGC. Il risultato è che il parsing non trova nulla.
+⚠️ **La diagnosi scritta qui il 2026-09-04 era sbagliata, ed è istruttivo
+sapere perché.** Diceva: *"il G-code reale prefissa il numero di riga
+(`N101 G1 X... Y... Z...`)"*. Era stata dedotta guardando le **prime righe** del
+file e generalizzando. Analizzando tutte e 4.704 le righe, il dialetto reale è
+un altro:
 
-Misurato su `linuxcnc_3d_chips.ngc` (200 KB, LinuxCNC, GPL-2.0):
+| Aspetto | Diagnosi errata | Realtà misurata |
+|---|---|---|
+| Separatore dopo N-word | `N101 G1 …` con spazio | **nessuno spazio**: 4.690 righe su 4.691 |
+| Comando G | presente su ogni riga | **assente su 4.681 righe** (G-code modale) |
+| Valori | numeri letterali | **espressioni parametriche**: `Y[#<yscale>*53.293]` su 4.684 righe |
 
-- `transform()` restituisce **template di 200,509 byte e coordinate di 7 byte**:
-  il template è l'intero file, non ha estratto niente
-- risultato end-to-end: **−0.06%**, fallback, `domain_id=0` archiviato
-- lo stesso dominio sul dataset sintetico rende **+64.10%**
+Righe con `X`/`Y`/`Z` seguito da una cifra — il formato che l'engine sapeva
+leggere — erano **zero su 4.704**. Il fix "N-word con spazio" avrebbe
+recuperato **1 riga su 4.691**.
 
-**È il divario sintetico-reale più grande dell'intera tabella**, e nasce da un
-dettaglio di parsing di una riga: il generatore sintetico emetteva `G1 X...`
-senza numero di riga, un dialetto che molti file CNC reali non usano.
+**Lezione: non fidarsi di un frammento del file.** Il primo `head` mostrava
+commenti e assegnazioni di variabili, non le righe di movimento vere.
 
-Da fare: riconoscere e separare il prefisso N-word prima del matching, e
-verificare anche gli altri prefissi comuni visti nel file reale (commenti fra
-parentesi tonde, assegnazioni di variabili `#<nome> = valore`).
+**Fatto:** riconoscimento della N-word senza spazio (estratta in colonna
+propria, perché varia a ogni riga) e delle righe modali che iniziano
+direttamente con una parola d'asse. Entrambe corrette per qualunque dialetto
+G-code, coperte da `tests/test_gcode_dialects.py`.
+
+| | prima | dopo |
+|---|---:|---:|
+| G-Code reale (LinuxCNC) | −0.06%, fallback | **+21.93%**, trasformazione usata |
+| G-Code sintetico | +64.10% | +64.07% |
+
+**Il +21.93% NON è il tetto, ed è importante capire da dove viene.** Sul file
+reale l'engine estrae:
+
+```
+X=0   Y=0   Z=0   N=4691
+```
+
+Zero coordinate. Il guadagno viene **interamente dai 4.691 numeri di riga**,
+che sono metadati. Le coordinate — il dato vero, 4.684 valori — restano
+intatte dentro le espressioni parametriche. C'è quindi **margine misurabile
+residuo** su questo file per chi implementasse il punto 3.
+
+### G-Code — punto 3: estrarre i numeri dalle espressioni parametriche (NON fatto)
+
+Riconoscere `X[<espressione>*NUMERO]` e separare il numero dal contorno
+sintattico. È l'unica parte che tocca il dato vero.
+
+**Perché è stato rimandato:** significa modellare la sintassi delle espressioni
+di LinuxCNC, che è specifica di quel dialetto e non G-code universale. Il file
+che abbiamo è un pezzo dimostrativo parametrizzato, e ottimizzare per un caso
+singolo è lo stesso errore del LiDAR a rampa deterministica — evitato stavolta
+prima invece che dopo.
+
+**Prerequisito prima di decidere: serve almeno un secondo file G-code reale di
+provenienza diversa** — output di uno slicer per stampa 3D, o di un
+post-processore CAM commerciale. Senza quello non sappiamo se le espressioni
+parametriche siano comuni nel G-code reale o una peculiarità di questo esempio.
+Il G-code da slicer usa quasi certamente coordinate letterali, che l'engine già
+gestisce; se fosse il caso prevalente, il punto 3 varrebbe molto meno.
 
 ---
 
