@@ -34,12 +34,12 @@ All tests certify exact mathematical data restoration (zero precision loss, bit-
 | **Parametric 3D CAD Mesh (.obj)** † | Prefix-Grouped Vertex Plane Slicing | 6.00x | **16.27x** | **+63.12%** | ~40 MB/s / ~80 MB/s |
 | **Audio PCM 16-bit (.wav)** † | Stereo Mid/Side Decorrelation | 1.02x | **2.59x** | **+60.48%** | ~172 MB/s / ~284 MB/s |
 | **LiDAR XYZ Point Cloud** † ¹ | Columnar Coordinate Slicing | 27.11x | **65.79x** | **+58.79%** | ~80 MB/s / ~106 MB/s |
+| **Temporal Video Sequence (.kmxvraw)** † | Frame Arithmetic Delta (SIMD) | 1.00x | **2.31x** | **+56.74%** | ~148 MB/s / ~168 MB/s |
 | **Binary Register Packets (.bin)** † | Stride Autocorr + Demux | 1.86x | **4.10x** | **+54.67%** | ~158 MB/s / ~1094 MB/s |
 | **Industrial Telemetry (.csv)** † | Shape-Grouped Columnar Demux | 4.59x | **8.23x** | **+44.24%** | ~47 MB/s / ~98 MB/s |
-| **Temporal Video Sequence (.kmxvraw)** † | Frame XOR Delta (SIMD) | 1.00x | **1.77x** | **+43.45%** | ~120 MB/s / ~189 MB/s |
 | **2D Natural Sensor Raster (.bmp)** † | 2D Spatial Delta | 1.07x | **1.80x** | **+40.38%** | ~37 MB/s / ~2.4 MB/s |
+| **Temporal Video (real gameplay)** ³ | Frame Arithmetic Delta (SIMD) | 1.70x | **2.79x** | **+38.87%** | ~87 MB/s / ~59 MB/s |
 | **Dense Float32 Buffer (250k values)** † | IEEE-754 Byte-Plane Slicing | 1.29x | **1.89x** | **+31.86%** | ~236 MB/s / ~642 MB/s |
-| **Temporal Video (real gameplay)** ³ | Frame XOR Delta (SIMD) | 1.70x | **2.28x** | **+25.14%** | ~95 MB/s / ~52 MB/s |
 | **Astrophysics FITS (JWST) — real data** | IEEE-754 Byte-Plane Slicing (auto-routed) | 1.47x | **1.76x** | **+16.31%** | ~213 MB/s / ~714 MB/s |
 | **x86 Binary Executable (.exe)** † ² | Adaptive Fallback (BCJ/Zstd) | 7.59x | **7.56x** | **-0.46%** | ~13 MB/s / ~879 MB/s |
 
@@ -51,11 +51,39 @@ All tests certify exact mathematical data restoration (zero precision loss, bit-
 >
 > ² *A 40 KB synthetic instruction stream; at that size the throughput timings are dominated by measurement noise.*
 >
-> ³ *Real data, and the honest counterpart to the synthetic video row above: 60 consecutive frames of 5120x1440 gameplay footage at full resolution, no downscaling. The gain drops from +43.45% to **+25.14%** because the content is adversarial for a temporal transform - 61% of bytes change between consecutive frames (up to 89% in the busiest pairs). The transform still wins the competitive check, so it is kept rather than discarded. Read the two video rows together: the synthetic figure is what low-motion content gives, not what video gives in general.*
+> ³ *Real data, and the honest counterpart to the synthetic video row above: 60 consecutive frames of 5120x1440 gameplay footage at full resolution, no downscaling. The gain is lower than the synthetic row's because the content is adversarial for a temporal transform - 61% of bytes change between consecutive frames, up to 89% in the busiest pairs. The transform still wins the competitive check, so it is kept rather than discarded. Read the two video rows together: the synthetic figure is what low-motion content gives, not what video gives in general.*
 >
-> *Known headroom on this row: the engine XORs consecutive frames, but XOR is a poor fit for continuous data - two adjacent values straddling a high bit produce a large residual (127 ^ 128 = 255) where subtraction would produce 1. Measured on the same frames, an arithmetic delta mod 256 compresses **17.47% smaller** than the XOR (+37.96% vs +24.83% against plain Zstd) and is equally reversible. Changing it alters the stored payload format, so it is tracked in `TODO.md` rather than applied silently.*
+> *Both video rows improved when the engine switched from an XOR delta to an arithmetic delta mod 256. XOR is a poor fit for continuous data - two adjacent values straddling a high bit produce a large residual (127 ^ 128 = 255) where subtraction gives 1. On this same real footage the change took the gain from +25.14% to +38.87% (output 18.34% smaller). The payload format is versioned by its magic: new containers are written as `KMXV2`, and `KMXV1` containers produced by earlier releases still decode bit-exact - covered by `tests/test_video_format_versions.py`.*
 >
 > *Domain gains depend on the data actually having the structure the transform exploits. On a high-entropy input - a random-walk mesh with 6 decimals of noise per coordinate, or the x86 stream above - the transform yields nothing, the adaptive competitive fallback discards it, and the stored result is the plain Zstd baseline plus the 24-byte KMX2 header. The raster decompression figure (~2.4 MB/s) reflects a pure-Python pixel loop whose sequential dependency has not yet been ported to the C extension; it is the current honest number, not a target.*
+
+## Code Synthesis: Unsafe by Design, Opt-In Only
+
+KolmoX carries a legacy compression path that stores a small Python generator
+program alongside a residual, and re-runs that program to reconstruct the data:
+`compress_with_script()` and the `KMX1` containers read by
+`decompress_container()`.
+
+**This path executes arbitrary Python.** It is disabled by default and must be
+switched on explicitly:
+
+```python
+pipeline = KolmoXPipeline(allow_code_execution=True)   # never on untrusted input
+```
+
+Opening a third-party `KMX1` container with that flag enabled is equivalent to
+running code its author chose. Treat such files exactly as you would treat a
+pickle or an executable from the same source.
+
+The interpreter's `__builtins__` are restricted to a small arithmetic subset
+before the script runs. **This is hardening, not a sandbox** — escapes from a
+restricted-builtins `exec()` are well documented, typically by walking an
+object's class hierarchy to reach broader machinery. It raises the bar against
+accidents; it does not make hostile input safe. The real control is the
+`allow_code_execution` gate, which is fail-closed by default.
+
+Every other domain in the table above is pure data transformation and executes
+nothing.
 
 ## Installation & Setup
 

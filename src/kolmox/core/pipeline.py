@@ -27,6 +27,28 @@ DeltaHandler = getattr(delta_mod, "DeltaEngine", delta_mod)
 KMX2_MAGIC = b"KMX2"
 KMX2_VERSION = 0x0110
 
+# Builtins esposti agli script di sintesi, recuperati dal SandboxRunner ritirato.
+#
+# ATTENZIONE: questo NON e' una sandbox. Restringere __builtins__ alza
+# l'asticella ma non chiude la porta: le vie di fuga da un exec() con builtins
+# ridotti sono ben documentate (risalita della gerarchia delle classi da un
+# oggetto qualsiasi per raggiungere object.__subclasses__(), e simili). La
+# difesa reale e' il gate allow_code_execution, che e' disattivato di default.
+# Non abilitarlo su container di provenienza non fidata.
+SAFE_BUILTINS = {
+    "bytearray": bytearray,
+    "bytes": bytes,
+    "range": range,
+    "len": len,
+    "int": int,
+    "float": float,
+    "min": min,
+    "max": max,
+    "abs": abs,
+    "pow": pow,
+    "round": round,
+}
+
 
 class KolmoXPipeline:
     def __init__(self, chunk_size: int = 65536, compression_level: int = 3, allow_code_execution: bool = False):
@@ -71,15 +93,22 @@ class KolmoXPipeline:
             return xor_part + delta_bytes[min_len:]
 
     def compress_with_script(self, raw_data: bytes, python_script: str, allow_code_execution: Optional[bool] = None) -> bytes:
-        """Pipeline classica basata su sintesi di codice + delta residuo."""
-        can_exec = getattr(self, 'allow_code_execution', True) if allow_code_execution is None else allow_code_execution
+        """Pipeline classica basata su sintesi di codice + delta residuo.
+
+        UNSAFE BY DESIGN, OPT-IN ONLY. Esegue `python_script` con exec(). I
+        builtins sono ristretti a SAFE_BUILTINS, il che alza l'asticella ma non
+        costituisce una sandbox: non usare questo metodo su script di
+        provenienza non fidata. Disattivato di default; va abilitato
+        esplicitamente con allow_code_execution=True.
+        """
+        can_exec = getattr(self, 'allow_code_execution', False) if allow_code_execution is None else allow_code_execution
         if not can_exec:
             raise PermissionError(
                 "Arbitrary code execution is disabled by default for security. "
                 "Pass allow_code_execution=True to explicitly permit running untrusted synthesis scripts."
             )
         loc = {}
-        exec(python_script, {}, loc)
+        exec(python_script, {"__builtins__": SAFE_BUILTINS}, loc)
         if "generate" not in loc or not callable(loc["generate"]):
             raise ValueError("Lo script sintetizzato non espone la funzione generate().")
 
@@ -107,7 +136,14 @@ class KolmoXPipeline:
             return struct.pack("<4sQQ", b"KMX1", len(compressed_script), len(compressed_delta)) + compressed_script + compressed_delta
 
     def decompress_container(self, container_bytes: bytes) -> bytes:
-        """Decompressione classica da container KolmoX."""
+        """Decompressione classica da container KolmoX legacy (KMX1).
+
+        UNSAFE BY DESIGN, OPT-IN ONLY. Questo formato incorpora uno script
+        Python che viene eseguito per ricostruire i dati: aprire un container
+        KMX1 di terzi con allow_code_execution=True equivale a eseguire codice
+        arbitrario da loro fornito. I builtins sono ristretti a SAFE_BUILTINS,
+        che alza l'asticella ma non e' una sandbox. Disattivato di default.
+        """
         if hasattr(ContainerHandler, "unpack_container"):
             parsed = ContainerHandler.unpack_container(container_bytes)
         elif hasattr(container_mod, "unpack_container"):
@@ -122,13 +158,13 @@ class KolmoXPipeline:
         decompressed_script = self.dctx.decompress(parsed["compressed_script"]).decode("utf-8")
         decompressed_delta = self.dctx.decompress(parsed["compressed_delta"])
 
-        if not getattr(self, 'allow_code_execution', True):
+        if not getattr(self, 'allow_code_execution', False):
             raise PermissionError(
                 "Arbitrary code execution is disabled by default for security. "
                 "Decompressing legacy script containers requires allow_code_execution=True."
             )
         loc = {}
-        exec(decompressed_script, {}, loc)
+        exec(decompressed_script, {"__builtins__": SAFE_BUILTINS}, loc)
         predicted = loc["generate"]()
 
         return self._apply_delta(predicted, decompressed_delta)
@@ -139,7 +175,7 @@ class KolmoXPipeline:
         filename: Optional[str] = None,
         force_domain: Optional[DomainType] = None,
     ) -> bytes:
-        """Pipeline estesa v1.2.0 (Extended Domains & Multi-stream KMX2 con Adaptive Competitive Fallback)."""
+        """Pipeline estesa v1.3.0 (Extended Domains & Multi-stream KMX2 con Adaptive Competitive Fallback)."""
         target_domain = (
             force_domain
             if force_domain is not None

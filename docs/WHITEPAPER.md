@@ -3,7 +3,7 @@
 
 *Author:* KolmoX Open-Source Research Project  
 *Date:* August 2026  
-*Specification:* KMX2 Engine Spec (v1.2.1)
+*Specification:* KMX2 Engine Spec (v1.3.0)
 
 > **Correction notice - 2026-09-03.** The benchmark table and abstract of this
 > document previously reported figures that could not be reproduced by the
@@ -38,10 +38,11 @@ Every row was measured on 2026-09-03 through the public `KolmoXPipeline.compress
 | **Parametric 3D CAD Mesh (.obj)** † | Prefix-Grouped Vertex Plane Slicing | 6.00x | **16.27x** | **+63.12%** | ~40 MB/s / ~80 MB/s |
 | **Audio PCM 16-bit (.wav)** † | Stereo Mid/Side Decorrelation | 1.02x | **2.59x** | **+60.48%** | ~172 MB/s / ~284 MB/s |
 | **LiDAR XYZ Point Cloud** † ¹ | Columnar Coordinate Slicing | 27.11x | **65.79x** | **+58.79%** | ~80 MB/s / ~106 MB/s |
+| **Temporal Video Sequence (.kmxvraw)** † | Frame Arithmetic Delta (SIMD) | 1.00x | **2.31x** | **+56.74%** | ~148 MB/s / ~168 MB/s |
 | **Binary Register Packets (.bin)** † | Stride Autocorr + Demux | 1.86x | **4.10x** | **+54.67%** | ~158 MB/s / ~1094 MB/s |
 | **Industrial Telemetry (.csv)** † | Shape-Grouped Columnar Demux | 4.59x | **8.23x** | **+44.24%** | ~47 MB/s / ~98 MB/s |
-| **Temporal Video Sequence (.kmxvraw)** † | Frame XOR Delta (SIMD) | 1.00x | **1.77x** | **+43.45%** | ~120 MB/s / ~189 MB/s |
 | **2D Natural Sensor Raster (.bmp)** † | 2D Spatial Delta | 1.07x | **1.80x** | **+40.38%** | ~37 MB/s / ~2.4 MB/s |
+| **Temporal Video (real gameplay)** ³ | Frame Arithmetic Delta (SIMD) | 1.70x | **2.79x** | **+38.87%** | ~87 MB/s / ~59 MB/s |
 | **Dense Float32 Buffer (250k values)** † | IEEE-754 Byte-Plane Slicing | 1.29x | **1.89x** | **+31.86%** | ~236 MB/s / ~642 MB/s |
 | **Astrophysics FITS (JWST) - real data** | IEEE-754 Byte-Plane Slicing (auto-routed) | 1.47x | **1.76x** | **+16.31%** | ~213 MB/s / ~714 MB/s |
 | **x86 Binary Executable (.exe)** † ² | Adaptive Fallback (BCJ/Zstd) | 7.59x | **7.56x** | **-0.46%** | ~13 MB/s / ~879 MB/s |
@@ -51,6 +52,10 @@ Every row was measured on 2026-09-03 through the public `KolmoXPipeline.compress
 > ¹ *The LiDAR dataset is a deterministic arithmetic ramp, which is why even the plain Zstd baseline reaches 27.11x. It demonstrates that the transform functions, but it is **not** representative of real scanner output and should be read as a mechanism check rather than a performance claim.*
 
 > ² *A 40 KB synthetic instruction stream; at that size the throughput timings are dominated by measurement noise.*
+
+> ³ *Real data: 60 consecutive frames of 5120x1440 gameplay footage at full resolution, no downscaling. It sits well below the synthetic video row because the content is adversarial for a temporal transform - 61% of bytes change between consecutive frames, up to 89% in the busiest pairs. The transform still wins the competitive check. Read the two video rows together: the synthetic figure is what low-motion content gives, not what video gives in general.*
+
+> *Both video rows improved when the temporal transform moved from an XOR delta to an arithmetic delta mod 256. XOR is a poor fit for continuous data: two adjacent values straddling a high bit yield a large residual (127 ^ 128 = 255) where subtraction yields 1. On the real footage this took the gain from +25.14% to +38.87%, an output 18.34% smaller. The payload is versioned by its magic - `KMXV2` is written, `KMXV1` from earlier releases still decodes bit-exact.*
 
 > *Note: Domain gains depend on the input actually carrying the structure the transform exploits. On a high-entropy payload - a random-walk mesh with six decimals of noise per coordinate, or the x86 stream above - the transform yields nothing, the adaptive competitive fallback discards it, and the stored result is the plain Zstd baseline plus the 24-byte KMX2 header. The raster decompression figure (~2.4 MB/s) reflects a pure-Python pixel loop whose sequential dependency has not yet been ported to the C extension; it is the current honest number, not a target.*
 

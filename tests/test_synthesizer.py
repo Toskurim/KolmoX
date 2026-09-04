@@ -13,7 +13,8 @@ def test_heuristic_linear_synthesis():
     script = engine.synthesize(data)
     
     assert script is not None
-    pipeline = KolmoXPipeline()
+    # Percorso a sintesi di codice: unsafe by design, opt-in esplicito.
+    pipeline = KolmoXPipeline(allow_code_execution=True)
     compressed = pipeline.compress_with_script(data, script)
     restored = pipeline.decompress(compressed)
 

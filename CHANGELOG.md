@@ -1,5 +1,79 @@
 # Changelog
 
+## [1.3.0] - 2026-09-04
+
+### Changed — video payload format
+
+`VideoEngine` now writes an **arithmetic delta mod 256** between consecutive
+frames instead of an XOR. XOR is a poor fit for continuous data: two adjacent
+values straddling a high bit produce a large residual (`127 ^ 128 = 255`) where
+subtraction produces `1`.
+
+Measured on 60 frames of real 5120x1440 gameplay footage, through the public
+pipeline API with a bit-exact roundtrip assertion:
+
+| | ratio | vs plain Zstd |
+| :--- | ---: | ---: |
+| KMXV1 XOR (previous) | 2.28x | +25.14% |
+| **KMXV2 arithmetic (current)** | **2.79x** | **+38.87%** |
+
+The output is 18.34% smaller. The synthetic video row went from +43.45% to
++56.74%.
+
+**Backward compatibility is preserved.** The 5-byte magic doubles as the format
+version: `KMXV2` is written from this release on, and `KMXV1` payloads produced
+by earlier releases still decode bit-exact. This is covered by
+`tests/test_video_format_versions.py`, which asserts explicitly that a legacy
+container round-trips through the public pipeline unchanged.
+
+Containers written by 1.3.0 are **not** readable by kolmox <= 1.2.1, which only
+recognises `KMXV1`.
+
+### Security
+
+- `compress_with_script()` and `decompress_container()` now execute synthesized
+  scripts with `__builtins__` restricted to a small arithmetic subset, instead
+  of the full default builtins. Measured before the change: an empty globals
+  dict still granted 158 builtins including `open`, `eval` and a working
+  `import os`. **This is hardening, not a sandbox** — escapes from a
+  restricted-builtins `exec()` are well documented. The real control remains
+  the `allow_code_execution` gate.
+- The gate's fallback is now **fail-closed**: `getattr(self,
+  'allow_code_execution', False)`. It had been `True`, so an object missing the
+  attribute would have been allowed to execute. This regression had been
+  reintroduced three times by patch scripts; it is now pinned by
+  `test_script_execution_is_refused_by_default`.
+- README documents the synthesis path as unsafe by design, opt-in only, and
+  never to be enabled for third-party containers.
+
+### Removed — dead code
+
+Three modules were retired after verifying nothing reachable depended on them:
+
+- `core/chunker.py` — superseded by `core/chunked.py`, which the CLI actually
+  uses. It was not importable: it depended on `sandbox/runner.py`.
+- `sandbox/runner.py` — left syntactically broken by two quarantined patch
+  scripts (an `IndentationError`, plus a guard referencing a `kwargs` the
+  signature does not accept). The sandbox it provided was never used by the
+  code path that actually executes scripts.
+- `core/text_columnar.py` — not bit-exact (it decodes with `errors="replace"`,
+  destroying non-UTF-8 bytes irreversibly) and a worse duplicate of
+  `engines/columnar_text.py`. Its only remaining consumer,
+  `benchmarks/real_world_bench.py`, was retired with it: that benchmark applied
+  transforms outside the pipeline, which this project's methodology note
+  declares non-reportable.
+
+Before removal, the corruption risk was traced end to end and found
+**unreachable**: `chunker.py` already round-trip-verified before accepting the
+columnar path, it was not importable, nothing imported it, and the real chunked
+CLI path never touched it. Verified bit-exact on 7 edge cases including pure
+binary.
+
+### Fixed
+
+- The two long-standing failing tests now pass by opting in explicitly. The
+  suite is **56/56 green**.
+
 ## [1.2.0] - 2026-09-03
 
 ### Benchmark correction notice

@@ -245,4 +245,4 @@ def build_pdf(md_path, pdf_path):
     doc.build(story, canvasmaker=NumberedCanvas)
     print(f"Whitepaper PDF generato con successo: {pdf_path}")
 
-build_pdf("docs/WHITEPAPER.md", "docs/KolmoX_Technical_Paper_v1.2.1_Complete_EN.pdf")
+build_pdf("docs/WHITEPAPER.md", "docs/KolmoX_Technical_Paper_v1.3.0_Complete_EN.pdf")

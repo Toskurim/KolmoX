@@ -40,30 +40,25 @@ colonnare testuale — inutile su STL binario. STEP non è nemmeno rilevato.
 `MeshCADEngine` ha già i detector (`is_stl`, `is_step`) pronti da collegare.
 
 ### `TextColumnarEngine` — `src/kolmox/core/text_columnar.py`
-⚠️ **Non è bit-exact.** Testato sugli stessi casi limite di
-`ColumnarTextEngine`, fallisce 4 casi su 6:
+⚠️ **Non è bit-exact** (fallisce 4 casi limite su 6: senza newline finale,
+righe vuote, righe irregolari, byte non-UTF8; la causa è `errors="replace"`
+in decodifica, che distrugge i byte non-UTF8 in modo irreversibile).
 
-| Caso | Esito |
-|---|---|
-| CSV normale | OK |
-| CRLF | OK |
-| senza newline finale | **FALLITO** |
-| righe vuote in mezzo | **FALLITO** |
-| righe irregolari (ragged) | **FALLITO** |
-| byte non-UTF8 | **FALLITO** |
+**Indagine chiusa il 2026-09-04: nessun rischio per gli utenti.** Il difetto
+non era raggiungibile, verificato con test e non per lettura:
 
-La causa è `errors="replace"` in decodifica, che distrugge i byte non-UTF8 in
-modo irreversibile, più la ricostruzione dei newline "a indovinare".
+1. `chunker.py`, unico consumatore, verificava già il roundtrip prima di
+   accettare il percorso colonnare (`if rebuilt == block_data`).
+2. `chunker.py` non era nemmeno importabile (dipendeva da `sandbox/runner.py`,
+   sintatticamente rotto) e nessun modulo lo importava.
+3. Il percorso chunked reale della CLI è `core/chunked.py`, che usa
+   `KolmoXPipeline` con verifica CRC32 e non tocca `TextColumnarEngine`.
+   Testato bit-exact su 7 casi limite, incluso binario puro.
 
-**Non è orfano — è peggio: `src/kolmox/core/chunker.py` lo usa** (righe 29-34,
-84). Va quindi verificato se il percorso chunked può corrompere dati su input
-non-UTF8 o con righe irregolari. **Questa è la voce a priorità più alta della
-lista**, perché è l'unica che può produrre output sbagliato invece che
-semplicemente mancare un'ottimizzazione.
+`chunker.py` e `sandbox/runner.py` sono stati ritirati il 2026-09-04.
 
-**Da fare:** riprodurre il problema attraverso `chunker.py`, poi migrare a
-`ColumnarTextEngine` (che è bit-exact per costruzione) oppure ritirarlo.
-I due nomi quasi identici sono di per sé una trappola: vanno unificati.
+**Resta da fare:** ritirare anche `text_columnar.py`. È bloccato da
+`benchmarks/real_world_bench.py`, che è l'unico riferimento rimasto.
 
 ### `RasterEngine` — `src/kolmox/engines/raster_engine.py`
 Collegato al router il 2026-09-03, funzionante e bit-exact. L'encoding è stato
@@ -79,7 +74,29 @@ lavoro non è stato nemmeno tentato per non produrre codice non verificabile.
 
 ---
 
-## VideoEngine: sostituire l'XOR con un delta aritmetico
+## ~~VideoEngine: sostituire l'XOR con un delta aritmetico~~ — FATTO il 2026-09-04
+
+Implementato con versionamento del magic: si scrive `KMXV2` (delta aritmetico),
+si legge sia `KMXV2` sia `KMXV1` (XOR legacy). Retrocompatibilità coperta da
+`tests/test_video_format_versions.py`, che verifica esplicitamente che un
+container KMXV1 resti decomprimibile bit-exact attraverso la pipeline pubblica.
+
+Risultato misurato sullo stesso campione, confronto alla pari:
+
+| | ratio | vs Zstd |
+|---|---:|---:|
+| KMXV1 XOR (prima) | 2.28x | +25.14% |
+| **KMXV2 delta (ora)** | **2.79x** | **+38.87%** |
+
+Miglioramento di 13.73 punti, output 18.34% più piccolo. La riga sintetica è
+passata da +43.45% a +56.74%.
+
+**Nota sulla versione:** questo è un cambio di formato del payload. I container
+scritti d'ora in poi non sono leggibili da kolmox ≤ 1.2.1. Al prossimo rilascio
+serve un bump minore (1.3.0) e una voce nel CHANGELOG.
+
+<details>
+<summary>Analisi originale (2026-09-03)</summary>
 
 Misurato su 60 frame reali di gameplay 5120x1440 (2026-09-03), non ipotizzato.
 
@@ -97,32 +114,91 @@ darebbe `1`. Sugli stessi 20 frame:
 Il delta aritmetico è **17.47% più piccolo** dell'XOR, ed è reversibile:
 verificato che `np.cumsum(delta, axis=0) % 256` ricostruisce i frame bit-exact.
 
-**Perché non è già stato fatto:** cambia il formato del payload prodotto da
-`VideoEngine`, quindi i container esistenti con `domain_id=9` non sarebbero
-più leggibili. Va gestito come cambio di formato — o con un flag di versione
-nell'header `KMXV1`, che ha già un campo versione inutilizzato nel container
-esterno KMX2.
+**Perché non era stato fatto subito:** cambia il formato del payload prodotto
+da `VideoEngine`, quindi i container esistenti con `domain_id=9` non sarebbero
+più leggibili. Risolto usando il magic stesso come campo versione.
 
-**Guadagno atteso:** la riga video su gameplay reale passerebbe da +25.14% a
-circa +38%.
+</details>
+
+---
+
+## Benchmark: assorbire il confronto con baseline più forti
+
+`benchmarks/real_world_bench.py` è stato ritirato il 2026-09-04 perché
+applicava le trasformazioni a mano fuori dalla pipeline — il pattern che la
+nota metodologica del README dichiara non riportabile — e copriva gli stessi
+tre domini che `benchmark_extended.py` già misura correttamente.
+
+**Una cosa però la faceva e l'altro no: confrontava contro Gzip livello 9 e
+Zstandard livello 19**, non solo Zstd livello 3. È un'informazione che vale la
+pena recuperare: sapere se il vantaggio strutturale regge contro un entropy
+coder molto più aggressivo è più interessante che batterlo al livello 3.
+
+**Da fare:** aggiungere a `benchmark_extended.py` due colonne baseline
+opzionali (Gzip-9, Zstd-19) dietro un flag `--strong-baselines`, per non
+rallentare l'esecuzione di default — Zstd-19 su 117 MB di FITS non è gratis.
+Ci si aspetta che diversi guadagni si riducano: è esattamente il numero onesto
+che serve conoscere.
+
+---
+
+## Benchmark su dati reali: piano per `benchmark_real.py`
+
+Obiettivo: rendere l'**Evidence Tier 2** del README riproducibile da terzi come
+già lo è il Tier 1. Oggi il Tier 2 dichiara dataset di produzione ma nessuno
+può rieseguirli.
+
+### Vincoli concordati
+- **Tetto di 500 MB complessivi** per tutti i dataset scaricati.
+- **Fonti archivistiche con DOI** dove possibile, non link diretti: gli URL
+  grezzi marciscono, ed è il punto debole di ogni suite di questo tipo.
+
+### `download_datasets.py`
+Scarica in `benchmarks/datasets/` (già in `.gitignore`), con:
+- manifest dichiarativo per dataset: URL/DOI, **checksum SHA-256**, licenza,
+  dimensione attesa, dominio KolmoX di destinazione
+- verifica del checksum dopo il download, ripresa se interrotto, salto di ciò
+  che è già presente e valido
+- rifiuto di procedere se il totale supererebbe il tetto
+
+### Candidati per dominio
+
+| Dominio | Fonte | Licenza |
+|---|---|---|
+| FITS | MAST/STScI, osservazioni JWST pubbliche | pubblico dominio |
+| LiDAR | USGS 3DEP, oppure AHN3 (NL), `.laz` → `.xyz` | pubblico / CC0 |
+| Audio WAV | OpenSLR, oppure Freesound CC0 | CC0 |
+| Mesh OBJ/STL | Stanford 3D Scanning Repository; NASA 3D Resources | ricerca / pubblico |
+| G-code | repository di stampa 3D con licenza CC | CC |
+| Telemetria CSV | UCI ML Repository (sensori industriali) | CC BY |
+
+### `benchmark_real.py`
+Stessa struttura di `benchmark_extended.py`, che è il modello da seguire:
+misura attraverso `KolmoXPipeline.compress_bytes()`/`decompress_bytes()`,
+assert bit-exact su ogni dominio, exit non-zero al primo fallimento, righe
+markdown pronte per il README. Salta con un avviso i dataset non scaricati,
+così gira anche parzialmente e non obbliga a scaricare tutto.
+
+---
 
 ## Altri difetti noti
 
-- **`getattr(self, 'allow_code_execution', True)`** in `pipeline.py:75` e `:125`
-  è **fail-open**: se l'attributo manca, `exec()` viene permesso. Oggi è
-  innocuo perché `__init__` lo imposta sempre, ma il default sicuro è `False`.
 - **`VideoEngine.decompress_sequence` ignora il parametro `channels`** e assume
   sempre 3. Con RGBA (channels=4) userebbe la dimensione frame sbagliata.
   Aggirato in `domain_router.py` rifiutando `channels != 3`, non risolto.
 - **`src/kolmox/c_ext/fast_ops.c`** è codice morto con 4 errori che ne
   impedirebbero la compilazione (`PyBytes_ASCHAR`, `PyBytes_FromAndSize`,
   `bqf1.buf`, `0z`). Non è in `setup.py`, quindi non rompe l'installazione.
-- **2 test falliscono** (`test_end_to_end.py`, `test_synthesizer.py`): usano
-  `compress_with_script` senza `allow_code_execution=True`. Vanno aggiornati al
-  nuovo default sicuro.
 - **`BaseDomainEngine`** è un ABC i cui metodi astratti non sono implementati da
   nessuna delle classi che lo ereditano (funziona solo perché non vengono mai
   istanziate). Ereditarietà di facciata.
+
+### Risolti il 2026-09-04
+- ~~`getattr(self, 'allow_code_execution', True)` fail-open~~ → ora `False`
+  (fail-closed), fissato da `test_script_execution_is_refused_by_default`, che
+  verifica anche il caso in cui l'attributo manchi del tutto. Era regredito
+  tre volte.
+- ~~2 test falliscono~~ → aggiornati con l'opt-in esplicito. **Suite ora 56/56.**
 
 ---
 
