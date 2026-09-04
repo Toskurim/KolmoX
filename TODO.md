@@ -122,6 +122,37 @@ più leggibili. Risolto usando il magic stesso come campo versione.
 
 ---
 
+## ~~Benchmark: assorbire il confronto con baseline più forti~~ — FATTO il 2026-09-04
+
+Implementato come flag `--strong-baselines` in `benchmarks/benchmark_extended.py`.
+Senza il flag il comportamento è identico a prima, quindi i numeri pubblicati
+non cambiano. Con il flag: seconda passata a Zstd livello 19 applicato a
+**entrambi i lati** (baseline e compressore interno della pipeline), più Gzip-9
+come riferimento. Costo: ~80 secondi contro ~15.
+
+**Esito: il vantaggio strutturale regge ovunque, nessun guadagno si azzera o va
+in negativo.** Tre domini migliorano a livello 19 (CAD Mesh +5.09, FITS +4.32,
+Video +3.48), otto si riducono. Il caso peggiore è il LiDAR, da +58.79% a
++23.37%: coerente col fatto che quel dataset è una rampa deterministica, che a
+livello 19 zstd trova da solo — è una conferma indipendente della cautela già
+scritta nella nota ¹ del README.
+
+**Limite metodologico dichiarato:** il confronto con Gzip-9 non isola il valore
+del preconditioning, perché la pipeline usa zstd internamente e non è
+configurabile su un altro backend. Quella colonna mescola due effetti. La
+colonna a livello 19 invece è equa.
+
+**Osservazione sul costo, da valutare:** `KolmoX@19` è sistematicamente più
+lento di `Zstd-19` (es. G-Code 1.4 contro 3 MB/s) perché il fallback adattivo
+comprime due volte, baseline e candidato. A livello 3 è trascurabile, a
+livello 19 raddoppia il lavoro più costoso della pipeline. Vale la pena
+valutare se il baseline di confronto possa essere calcolato a un livello più
+economico — ma attenzione: cambierebbe la garanzia "mai peggio di Zstd allo
+stesso livello" in qualcosa di più debole, quindi non è una modifica gratuita.
+
+<details>
+<summary>Analisi originale</summary>
+
 ## Benchmark: assorbire il confronto con baseline più forti
 
 `benchmarks/real_world_bench.py` è stato ritirato il 2026-09-04 perché
@@ -139,6 +170,8 @@ opzionali (Gzip-9, Zstd-19) dietro un flag `--strong-baselines`, per non
 rallentare l'esecuzione di default — Zstd-19 su 117 MB di FITS non è gratis.
 Ci si aspetta che diversi guadagni si riducano: è esattamente il numero onesto
 che serve conoscere.
+
+</details>
 
 ---
 

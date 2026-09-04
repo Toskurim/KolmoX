@@ -69,6 +69,38 @@ columnar path, it was not importable, nothing imported it, and the real chunked
 CLI path never touched it. Verified bit-exact on 7 edge cases including pure
 binary.
 
+### Added — `--strong-baselines`
+
+`benchmarks/benchmark_extended.py --strong-baselines` re-runs every domain at
+Zstd level 19 and adds a Gzip-9 reference. Without the flag behaviour is
+unchanged, so previously published figures are unaffected.
+
+The level is applied to **both sides**: KolmoX's internal compressor and its
+adaptive fallback run at 19 against a Zstd-19 baseline. Measuring KolmoX at
+level 3 against Zstd-19 would only show that level 19 compresses better and
+would say nothing about the preconditioning itself.
+
+Result: **the structural advantage holds everywhere. No domain drops to zero or
+turns negative**, and the transform is still selected wherever it was at level
+3. Three domains improve (CAD mesh +5.09 points, FITS +4.32, video +3.48);
+eight shrink. The largest loss is LiDAR, +58.79% → +23.37%, consistent with
+that dataset being a deterministic ramp Zstd-19 finds unaided - independent
+corroboration of the caveat already attached to that row.
+
+Both the README and the whitepaper now carry the level-19 gain **alongside**
+the level-3 column rather than replacing it, since a single column would hide
+the three domains that improve.
+
+Two limits are stated explicitly in the notes: the Gzip-9 column conflates the
+preconditioning with Zstd-vs-Gzip (the pipeline's backend is not configurable)
+and so is a reference rather than a measurement; and level 19 costs about two
+orders of magnitude in compression speed, with KolmoX slower than Zstd-19
+because the adaptive fallback compresses twice.
+
+The whitepaper PDF generator now derives table column widths from the actual
+column count instead of a hardcoded six, which the seventh column would have
+broken.
+
 ### Fixed
 
 - The two long-standing failing tests now pass by opting in explicitly. The

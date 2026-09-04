@@ -193,8 +193,19 @@ def build_pdf(md_path, pdf_path):
                     fmt_row.append(Paragraph(clean_cell, st))
                 t_rows.append(fmt_row)
 
-            # Tabella 6 colonne
-            col_widths = [110, 140, 55, 60, 65, 74]
+            # Larghezze derivate dal numero di colonne effettivo: la tabella
+            # dei benchmark e' cresciuta da 6 a 7 colonne, e cablarle a mano
+            # significava romperne il rendering a ogni cambio.
+            usable = 8.5 * 72 - 108          # letter meno i margini
+            n_cols = max(len(r) for r in table_data)
+            if n_cols == 7:
+                weights = [21, 24, 10, 11, 12, 12, 14]
+            elif n_cols == 6:
+                weights = [22, 28, 11, 12, 13, 14]
+            else:
+                weights = [1] * n_cols
+            total_w = sum(weights)
+            col_widths = [usable * w / total_w for w in weights]
             t = Table(t_rows, colWidths=col_widths, repeatRows=1)
             t.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#0F172A")),

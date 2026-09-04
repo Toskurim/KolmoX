@@ -18,6 +18,8 @@ riproducibile da chiunque senza dipendenze esterne. Il dominio FITS viene
 incluso solo se il file di osservazione JWST e' presente in locale.
 """
 
+import argparse
+import gzip
 import math
 import os
 import struct
@@ -219,12 +221,24 @@ def build_fits():
 # MISURA REALE VIA PIPELINE
 # ==========================================
 
-def bench_domain(name: str, raw_bytes: bytes, filename: str, expected_domain: DomainType):
-    """Misura end-to-end e verifica il roundtrip bit-exact."""
-    detected = DomainRouter.detect_domain(raw_bytes, filename=filename)
-    baseline_size = len(cctx.compress(raw_bytes))
+def bench_domain(name: str, raw_bytes: bytes, filename: str, expected_domain: DomainType,
+                 level: int = 3, with_gzip: bool = False):
+    """Misura end-to-end e verifica il roundtrip bit-exact.
 
-    pipeline = KolmoXPipeline()
+    `level` viene applicato SIA al baseline Zstd SIA al compressore interno
+    della pipeline. E' il punto che rende il confronto equo: misurare KolmoX a
+    livello 3 contro Zstd a livello 19 direbbe solo che il livello 19 comprime
+    meglio, non se il preconditioning strutturale abbia valore.
+    """
+    detected = DomainRouter.detect_domain(raw_bytes, filename=filename)
+    level_cctx = zstd.ZstdCompressor(level=level)
+
+    t0 = time.perf_counter()
+    baseline = level_cctx.compress(raw_bytes)
+    t_baseline = time.perf_counter() - t0
+    baseline_size = len(baseline)
+
+    pipeline = KolmoXPipeline(compression_level=level)
     t0 = time.perf_counter()
     kmx = pipeline.compress_bytes(raw_bytes, filename=filename)
     t1 = time.perf_counter()
@@ -234,8 +248,9 @@ def bench_domain(name: str, raw_bytes: bytes, filename: str, expected_domain: Do
     bit_exact = restored == raw_bytes
     mb = len(raw_bytes) / 1_048_576
 
-    return {
+    row = {
         "domain": name,
+        "level": level,
         "raw_kb": len(raw_bytes) / 1024,
         "zstd_kb": baseline_size / 1024,
         "kmx_kb": len(kmx) / 1024,
@@ -244,10 +259,21 @@ def bench_domain(name: str, raw_bytes: bytes, filename: str, expected_domain: Do
         "gain": (1 - len(kmx) / baseline_size) * 100,
         "comp_mbps": mb / (t1 - t0),
         "decomp_mbps": mb / (t2 - t1),
+        "baseline_comp_mbps": mb / t_baseline if t_baseline > 0 else float("inf"),
         "bit_exact": bit_exact,
         "detected_ok": detected == expected_domain,
         "transform_used": kmx[6] == int(detected),
     }
+
+    if with_gzip:
+        t0 = time.perf_counter()
+        gz = gzip.compress(raw_bytes, compresslevel=9)
+        t_gz = time.perf_counter() - t0
+        row["gzip_ratio"] = len(raw_bytes) / len(gz)
+        row["gzip_mbps"] = mb / t_gz if t_gz > 0 else float("inf")
+        row["gain_vs_gzip"] = (1 - len(kmx) / len(gz)) * 100
+
+    return row
 
 
 DATASETS = [
@@ -264,22 +290,109 @@ DATASETS = [
 ]
 
 
-def main():
+def run_pass(level: int, with_gzip: bool):
+    """Esegue tutti i domini a un dato livello di compressione."""
     results = []
     for name, builder, filename, expected in DATASETS:
-        console.print(f"[dim]misurazione: {name}...[/dim]")
-        results.append(bench_domain(name, builder(), filename, expected))
+        console.print(f"[dim]misurazione (L{level}): {name}...[/dim]")
+        results.append(bench_domain(name, builder(), filename, expected,
+                                    level=level, with_gzip=with_gzip))
 
     if os.path.exists(FITS_PATH):
-        console.print("[dim]misurazione: Astrophysics FITS (JWST, dati reali)...[/dim]")
-        results.append(
-            bench_domain("Astrophysics FITS (JWST) *", build_fits(), "carina.fits", DomainType.FLOAT32)
-        )
+        console.print(f"[dim]misurazione (L{level}): Astrophysics FITS (JWST, dati reali)...[/dim]")
+        results.append(bench_domain("Astrophysics FITS (JWST) *", build_fits(),
+                                    "carina.fits", DomainType.FLOAT32,
+                                    level=level, with_gzip=with_gzip))
     else:
         console.print(
             f"[yellow]FITS saltato: {FITS_PATH} non presente in locale "
             f"(unico dominio su dati di produzione reali).[/yellow]"
         )
+    return results
+
+
+def print_strong_baselines(weak, strong):
+    """Confronto fra il livello 3 di default e i baseline piu' aggressivi."""
+    console.print("\n")
+    t = Table(
+        title="Baseline piu' aggressivi: il vantaggio strutturale regge?",
+        header_style="bold cyan",
+    )
+    t.add_column("Domain", style="bold white", width=30, no_wrap=True)
+    t.add_column("Gain @L3", justify="right", no_wrap=True)
+    t.add_column("Gain @L19", justify="right", style="bold yellow", no_wrap=True)
+    t.add_column("Delta", justify="right", no_wrap=True)
+    t.add_column("Transf.@19", justify="center", no_wrap=True)
+    t.add_column("vs Gzip-9 †", justify="right", no_wrap=True)
+
+    by_name = {b["domain"]: b for b in weak}
+    for s in strong:
+        w = by_name.get(s["domain"])
+        d = s["gain"] - w["gain"] if w else 0.0
+        colour = "green" if s["gain"] > 0 else "red"
+        t.add_row(
+            s["domain"],
+            f"{w['gain']:+.2f}%" if w else "-",
+            f"[{colour}]{s['gain']:+.2f}%[/{colour}]",
+            f"{d:+.2f}",
+            "[green]used[/green]" if s["transform_used"] else "[yellow]fallb.[/yellow]",
+            f"{s.get('gain_vs_gzip', float('nan')):+.2f}%",
+        )
+    console.print(t)
+
+    console.print("\n")
+    tt = Table(title="Costo computazionale (compressione)", header_style="bold cyan")
+    tt.add_column("Domain", style="bold white", width=30, no_wrap=True)
+    tt.add_column("Zstd-3", justify="right", no_wrap=True)
+    tt.add_column("Zstd-19", justify="right", no_wrap=True)
+    tt.add_column("Gzip-9", justify="right", no_wrap=True)
+    tt.add_column("KolmoX@3", justify="right", no_wrap=True)
+    tt.add_column("KolmoX@19", justify="right", style="bold", no_wrap=True)
+
+    for s in strong:
+        w = by_name.get(s["domain"])
+        tt.add_row(
+            s["domain"],
+            f"{w['baseline_comp_mbps']:.0f}" if w else "-",
+            f"{s['baseline_comp_mbps']:.0f}",
+            f"{s.get('gzip_mbps', 0):.0f}",
+            f"{w['comp_mbps']:.0f}" if w else "-",
+            f"{s['comp_mbps']:.0f}",
+        )
+    console.print(tt)
+    console.print("[dim]valori in MB/s.[/dim]")
+
+    console.print("\n[bold]Riepilogo in markdown (indipendente dalla larghezza del terminale):[/bold]\n")
+    print("| Domain | Gain @L3 | Gain @L19 | Delta | Transform @L19 | KolmoX@3 | KolmoX@19 |")
+    print("| :--- | ---: | ---: | ---: | :---: | ---: | ---: |")
+    for s in strong:
+        w = by_name.get(s["domain"])
+        d = s["gain"] - w["gain"] if w else 0.0
+        print(
+            f"| {s['domain']} | {w['gain']:+.2f}% | {s['gain']:+.2f}% | {d:+.2f} | "
+            f"{'used' if s['transform_used'] else 'FALLBACK'} | "
+            f"{w['comp_mbps']:.0f} MB/s | {s['comp_mbps']:.1f} MB/s |"
+        )
+
+    console.print(
+        "\n[dim]† Il confronto con Gzip-9 NON isola il valore del preconditioning: "
+        "la pipeline usa Zstd internamente e non e' configurabile su un altro "
+        "backend, quindi quella colonna mescola due effetti (struttura + "
+        "zstd-vs-gzip). E' un riferimento, non una misura. La colonna Gain @L19 "
+        "invece e' equa: stesso livello 19 su entrambi i lati.[/dim]"
+    )
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--strong-baselines", action="store_true",
+        help="Ripete la misura a Zstd livello 19 (su entrambi i lati) e aggiunge "
+             "Gzip-9 come riferimento. Molto piu' lento.",
+    )
+    args = parser.parse_args()
+
+    results = run_pass(level=3, with_gzip=False)
 
     table = Table(
         title="KolmoX - Extended Domains Benchmark (misurato via KolmoXPipeline)",
@@ -324,8 +437,18 @@ def main():
         "e la pipeline ha archiviato il baseline: il costo residuo e' l'header KMX2 da 24 byte.[/dim]"
     )
 
-    failures = [b for b in results if not b["bit_exact"]]
-    misrouted = [b for b in results if not b["detected_ok"]]
+    strong = []
+    if args.strong_baselines:
+        console.print(
+            "\n[bold]--strong-baselines: seconda passata a Zstd livello 19 "
+            "(entrambi i lati) piu' Gzip-9 di riferimento. Richiede parecchio "
+            "tempo sui dataset grandi.[/bold]\n"
+        )
+        strong = run_pass(level=19, with_gzip=True)
+        print_strong_baselines(results, strong)
+
+    failures = [b for b in results + strong if not b["bit_exact"]]
+    misrouted = [b for b in results + strong if not b["detected_ok"]]
     if misrouted:
         console.print(
             f"\n[yellow]Attenzione: dominio inatteso per: "

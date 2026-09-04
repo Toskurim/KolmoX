@@ -32,26 +32,32 @@ Crucially, the architecture is designed to never lose to its own baseline: every
 
 Every row was measured on 2026-09-03 through the public `KolmoXPipeline.compress_bytes()` / `decompress_bytes()` API - the path an actual user exercises - with a bit-exact roundtrip assertion on each. Figures obtained by invoking engine classes directly, outside the pipeline, are deliberately excluded: they omit the 24-byte KMX2 container header and bypass the adaptive competitive fallback, and were the source of the discrepancies this revision corrects. Every † row is reproducible by third parties with `python benchmarks/benchmark_extended.py`, which regenerates each dataset from a fixed seed and re-asserts every roundtrip. Compression ratios are deterministic; the throughput columns are single-run samples and vary by roughly ±15% between runs.
 
-| Data Domain | Transformation Pipeline | Baseline (Zstd L3) | KolmoX (KMX2) | Gain vs Zstd | Throughput (Comp / Decomp) |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **CNC G-Code (.gcode)** † | Columnar Axis Separation | 5.69x | **15.84x** | **+64.10%** | ~24 MB/s / ~35 MB/s |
-| **Parametric 3D CAD Mesh (.obj)** † | Prefix-Grouped Vertex Plane Slicing | 6.00x | **16.27x** | **+63.12%** | ~40 MB/s / ~80 MB/s |
-| **Audio PCM 16-bit (.wav)** † | Stereo Mid/Side Decorrelation | 1.02x | **2.59x** | **+60.48%** | ~172 MB/s / ~284 MB/s |
-| **LiDAR XYZ Point Cloud** † ¹ | Columnar Coordinate Slicing | 27.11x | **65.79x** | **+58.79%** | ~80 MB/s / ~106 MB/s |
-| **Temporal Video Sequence (.kmxvraw)** † | Frame Arithmetic Delta (SIMD) | 1.00x | **2.31x** | **+56.74%** | ~148 MB/s / ~168 MB/s |
-| **Binary Register Packets (.bin)** † | Stride Autocorr + Demux | 1.86x | **4.10x** | **+54.67%** | ~158 MB/s / ~1094 MB/s |
-| **Industrial Telemetry (.csv)** † | Shape-Grouped Columnar Demux | 4.59x | **8.23x** | **+44.24%** | ~47 MB/s / ~98 MB/s |
-| **2D Natural Sensor Raster (.bmp)** † | 2D Spatial Delta | 1.07x | **1.80x** | **+40.38%** | ~37 MB/s / ~2.4 MB/s |
-| **Temporal Video (real gameplay)** ³ | Frame Arithmetic Delta (SIMD) | 1.70x | **2.79x** | **+38.87%** | ~87 MB/s / ~59 MB/s |
-| **Dense Float32 Buffer (250k values)** † | IEEE-754 Byte-Plane Slicing | 1.29x | **1.89x** | **+31.86%** | ~236 MB/s / ~642 MB/s |
-| **Astrophysics FITS (JWST) - real data** | IEEE-754 Byte-Plane Slicing (auto-routed) | 1.47x | **1.76x** | **+16.31%** | ~213 MB/s / ~714 MB/s |
-| **x86 Binary Executable (.exe)** † ² | Adaptive Fallback (BCJ/Zstd) | 7.59x | **7.56x** | **-0.46%** | ~13 MB/s / ~879 MB/s |
+| Data Domain | Transformation Pipeline | Baseline (Zstd L3) | KolmoX (KMX2) | Gain vs Zstd-3 | Gain vs Zstd-19 ‡ | Throughput (Comp / Decomp) |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **CNC G-Code (.gcode)** † | Columnar Axis Separation | 5.69x | **15.84x** | **+64.10%** | +57.33% | ~24 MB/s / ~35 MB/s |
+| **Parametric 3D CAD Mesh (.obj)** † | Prefix-Grouped Vertex Plane Slicing | 6.00x | **16.27x** | **+63.12%** | **+68.21%** | ~40 MB/s / ~80 MB/s |
+| **Audio PCM 16-bit (.wav)** † | Stereo Mid/Side Decorrelation | 1.02x | **2.59x** | **+60.48%** | +38.78% | ~172 MB/s / ~284 MB/s |
+| **LiDAR XYZ Point Cloud** † ¹ | Columnar Coordinate Slicing | 27.11x | **65.79x** | **+58.79%** | +23.37% | ~80 MB/s / ~106 MB/s |
+| **Temporal Video Sequence (.kmxvraw)** † | Frame Arithmetic Delta (SIMD) | 1.00x | **2.31x** | **+56.74%** | **+60.22%** | ~148 MB/s / ~168 MB/s |
+| **Binary Register Packets (.bin)** † | Stride Autocorr + Demux | 1.86x | **4.10x** | **+54.67%** | +44.38% | ~158 MB/s / ~1094 MB/s |
+| **Industrial Telemetry (.csv)** † | Shape-Grouped Columnar Demux | 4.59x | **8.23x** | **+44.24%** | +35.59% | ~47 MB/s / ~98 MB/s |
+| **2D Natural Sensor Raster (.bmp)** † | 2D Spatial Delta | 1.07x | **1.80x** | **+40.38%** | +33.59% | ~37 MB/s / ~2.4 MB/s |
+| **Temporal Video (real gameplay)** ³ | Frame Arithmetic Delta (SIMD) | 1.70x | **2.79x** | **+38.87%** | not measured | ~87 MB/s / ~59 MB/s |
+| **Dense Float32 Buffer (250k values)** † | IEEE-754 Byte-Plane Slicing | 1.29x | **1.89x** | **+31.86%** | +20.47% | ~236 MB/s / ~642 MB/s |
+| **Astrophysics FITS (JWST) - real data** | IEEE-754 Byte-Plane Slicing (auto-routed) | 1.47x | **1.76x** | **+16.31%** | **+20.64%** | ~213 MB/s / ~714 MB/s |
+| **x86 Binary Executable (.exe)** † ² | Adaptive Fallback (BCJ/Zstd) | 7.59x | **7.56x** | **-0.46%** | -0.46% | ~13 MB/s / ~879 MB/s |
 
 > † *Synthetic dataset, generated programmatically. Only the Astrophysics FITS row uses a real-world production capture: a 117 MB NASA/STScI JWST MIRI observation of the Carina Nebula, compressed whole-file through the automatic domain router. Compressing only the extracted pixel plane instead yields 1.26x → 1.61x (+21.41%).*
 
 > ¹ *The LiDAR dataset is a deterministic arithmetic ramp, which is why even the plain Zstd baseline reaches 27.11x. It demonstrates that the transform functions, but it is **not** representative of real scanner output and should be read as a mechanism check rather than a performance claim.*
 
 > ² *A 40 KB synthetic instruction stream; at that size the throughput timings are dominated by measurement noise.*
+
+> ‡ *Obtained with `benchmarks/benchmark_extended.py --strong-baselines`. The comparison is like-for-like: level 19 is applied to both sides, so KolmoX's internal compressor and its adaptive fallback both operate at 19 against a Zstd-19 baseline. This is what makes the figure meaningful - measuring KolmoX at level 3 against Zstd-19 would only demonstrate that level 19 compresses better, and would say nothing about the value of the structural preconditioning itself. The real-gameplay row comes from a private capture outside the reproducible script and was not re-run at level 19. The same flag also prints a Gzip-9 column, which is a reference point rather than a measurement of structural value: the pipeline uses Zstd internally and its backend is not configurable, so a Gzip comparison conflates the preconditioning with Zstd-vs-Gzip. Only the Zstd-19 column isolates the former.*
+
+> *Computational cost: level 19 is roughly two orders of magnitude slower to compress (Zstd-3 reaches 179-2802 MB/s on these datasets, Zstd-19 only 3-13 MB/s). KolmoX at level 19 is slower still, 1.4-10.1 MB/s, because the adaptive fallback compresses twice - once for the baseline it must beat, once for the candidate. Negligible at level 3; at level 19 it doubles the most expensive operation in the pipeline.*
+
+> **Reading the two gain columns.** *The preconditioning retains its value against a far more aggressive entropy coder: no domain drops to zero or turns negative, and the transform is still selected wherever it was at level 3. How much value, however, depends heavily on the domain - from +68.21% on the CAD mesh down to +23.37% on LiDAR. Three domains improve at level 19, which a single column would have concealed. And the row that loses the most, LiDAR, is precisely the one whose dataset was artificially favourable to begin with: a deterministic arithmetic ramp that Zstd-19 discovers unaided. That is independent corroboration of the caveat in note ¹ rather than a coincidence.*
 
 > ³ *Real data: 60 consecutive frames of 5120x1440 gameplay footage at full resolution, no downscaling. It sits well below the synthetic video row because the content is adversarial for a temporal transform - 61% of bytes change between consecutive frames, up to 89% in the busiest pairs. The transform still wins the competitive check. Read the two video rows together: the synthetic figure is what low-motion content gives, not what video gives in general.*
 
