@@ -198,7 +198,9 @@ def build_pdf(md_path, pdf_path):
             # significava romperne il rendering a ogni cambio.
             usable = 8.5 * 72 - 108          # letter meno i margini
             n_cols = max(len(r) for r in table_data)
-            if n_cols == 7:
+            if n_cols == 8:
+                weights = [22, 13, 11, 7, 12, 9, 10, 12]
+            elif n_cols == 7:
                 weights = [21, 24, 10, 11, 12, 12, 14]
             elif n_cols == 6:
                 weights = [22, 28, 11, 12, 13, 14]

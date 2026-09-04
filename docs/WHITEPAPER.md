@@ -67,6 +67,52 @@ Every row was measured on 2026-09-03 through the public `KolmoXPipeline.compress
 
 ---
 
+## Real-World Data Benchmark
+
+The table above is measured on synthetic datasets generated from fixed seeds.
+This second table is measured on real datasets drawn from public archives with
+declared licenses, reproducible with `python benchmarks/download_datasets.py`
+followed by `python benchmarks/benchmark_real.py` (~52 MB of download). It is
+kept separate rather than merged into a further column, because the underlying
+data differs and combining the two would obscure both.
+
+The pattern it reveals is worth stating plainly. Where the parser recognises the
+real data the gain holds - FITS retains +14.83% against +16.31% on its synthetic
+counterpart, and a well-formed CSV retains +24.85%. Where the parser fails to
+recognise it, the gain collapses to zero and the adaptive competitive fallback
+correctly stores a plain Zstd encoding instead. Both collapses trace to narrow,
+identified parsing defects rather than to limits of structural preconditioning:
+real G-code prefixes RS-274/NGC line numbers that the engine does not strip, and
+the second CSV is semicolon-delimited where the demux assumes commas.
+
+| Dataset | Source | License | Size | Baseline (Zstd L3) | KolmoX | Gain | Outcome |
+| :--- | :--- | :--- | ---: | ---: | ---: | ---: | :--- |
+| **Astrophysics FITS** (JWST SMACS 0723) | MAST / STScI | Public domain | 35.0 MB | 1.76x | **2.07x** | **+14.83%** | transform used |
+| **Industrial Telemetry** (clean CSV) | UCI ML Repository | CC BY 4.0 | 11.4 MB | 6.02x | **8.01x** | **+24.85%** | transform used |
+| **Industrial Telemetry** (semicolon CSV) | UCI ML Repository | CC BY 4.0 | 0.8 MB | 3.04x | **3.44x** | **+11.51%** | transform used (a) |
+| **CNC G-Code** (LinuxCNC) | LinuxCNC | GPL-2.0 (b) | 0.2 MB | 4.79x | 4.78x | **-0.06%** | fallback (c) |
+| **CAD Mesh** (binary STL, WVS) | Zenodo 5034614 | CC0 | 3.1 MB | 1.86x | 1.86x | **-0.00%** | fallback (d) |
+| **CAD Mesh** (binary STL, Ambulacral) | Zenodo 5034614 | CC0 | 0.7 MB | 2.57x | 2.56x | **-0.01%** | fallback (d) |
+
+> (a) *Semicolon-delimited with commas as decimal separators. The columnar demux assumes commas, splitting the decimals and producing ragged rows. Measured with the correct delimiter the same file yields **+26.30%**: 14.78 points forfeited to a delimiter that is detectable rather than assumed.*
+
+> (b) *Downloaded for local benchmarking only; the file carries an internal copyright notice and is not redistributed with this repository.*
+
+> (c) *`GCodeEngine` matches lines beginning with `G1 `, whereas real G-code prefixes line numbers (`N101 G1 X...`). The transform extracts nothing - a 200,509-byte template and 7 bytes of coordinates - so its overhead loses the comparison. The synthetic dataset scored +64.10% on this domain because its generator emitted no line numbers.*
+
+> (d) *The two obvious remedies were measured and rejected: transposing at the 50-byte record stride costs -32.21%, float-aware byte-plane slicing costs -31.60%. Adjacent triangles in an STL share vertices, so the raw stream carries local redundancy that LZ77 exploits and transposition destroys. On this data the fallback is already selecting correctly.*
+
+**Declared gaps.** Two domains present in the synthetic table have no real-world
+counterpart here. **LiDAR**: no source combining a suitable license with a usable
+format - USGS 3DEP proved unreachable and the one live alternative is LAZ, which
+would require `laspy` or PDAL and break the zero-dependency property of the
+reproducible script. **Audio**: no source offering direct WAV files at a
+proportionate size, the smallest real option costing 157 MB of transfer for a
+single usable file. A declared gap is preferable to a figure of uncertain
+provenance.
+
+---
+
 ## Domain Transform Specifications & Formal Theory
 
 ### 1. Astrophysics FITS & Multidimensional Tensor Modeling

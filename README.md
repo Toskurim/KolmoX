@@ -12,7 +12,7 @@
 ### Evidence Tiers
 
 * **✅ Tier 1 (Reproducible In-Script)**: Synthetic-but-realistic datasets generated programmatically via `python benchmarks/benchmark_extended.py`. Fully reproducible by any third party with zero external dependencies.
-* **📋 Tier 2 (Production Data / Reported)**: Benchmarked against production binary streams (NASA/STScI James Webb MIRI FITS, 5-axis CNC toolpaths, and Modbus/PLC telemetry registers). Reproducible via `python benchmarks/download_datasets.py` for publicly licensed archives.
+* **✅ Tier 2 (Reproducible from Public Archives)**: Real datasets from public archives with declared licenses - NASA/STScI JWST FITS, UCI industrial telemetry, LinuxCNC toolpaths, Zenodo CC0 meshes. Reproducible with `python benchmarks/download_datasets.py && python benchmarks/benchmark_real.py`, roughly 52 MB of download. Every entry declares its URL, license, size and SHA-256 checksum; the checksum is verified after download and a mismatch aborts rather than proceeding. Results, including the domains where the gain collapses, are in the [Real-World Data Benchmark](#real-world-data-benchmark) table below.
 
 ---
 
@@ -64,6 +64,54 @@ All tests certify exact mathematical data restoration (zero precision loss, bit-
 > *Both video rows improved when the engine switched from an XOR delta to an arithmetic delta mod 256. XOR is a poor fit for continuous data - two adjacent values straddling a high bit produce a large residual (127 ^ 128 = 255) where subtraction gives 1. On this same real footage the change took the gain from +25.14% to +38.87% (output 18.34% smaller). The payload format is versioned by its magic: new containers are written as `KMXV2`, and `KMXV1` containers produced by earlier releases still decode bit-exact - covered by `tests/test_video_format_versions.py`.*
 >
 > *Domain gains depend on the data actually having the structure the transform exploits. On a high-entropy input - a random-walk mesh with 6 decimals of noise per coordinate, or the x86 stream above - the transform yields nothing, the adaptive competitive fallback discards it, and the stored result is the plain Zstd baseline plus the 24-byte KMX2 header. The raster decompression figure (~2.4 MB/s) reflects a pure-Python pixel loop whose sequential dependency has not yet been ported to the C extension; it is the current honest number, not a target.*
+
+## Real-World Data Benchmark
+
+The table above runs on synthetic datasets. This one runs on public archives
+with declared licenses, downloadable by anyone:
+
+```bash
+python benchmarks/download_datasets.py   # ~52 MB
+python benchmarks/benchmark_real.py
+```
+
+**How to read this table.** Where the parser recognises the real data, the gain
+holds: FITS keeps +14.83% against +16.31% on the synthetic equivalent, and a
+clean CSV keeps +24.85%. Where the parser does *not* recognise it, the gain
+collapses to zero and the adaptive fallback correctly stores plain Zstd instead.
+Both collapses trace to specific, narrow parsing defects, not to limits of the
+approach: real G-code prefixes line numbers (`N101 G1 X...`), which the engine
+does not strip, and this CSV uses semicolons where the demux assumes commas.
+Both are diagnosed with measured numbers in [TODO.md](TODO.md). We publish the
+failures next to the successes because the gap between them is the useful part.
+
+| Dataset | Source | License | Size | Baseline (Zstd L3) | KolmoX | Gain | Outcome |
+| :--- | :--- | :--- | ---: | ---: | ---: | ---: | :--- |
+| **Astrophysics FITS** (JWST SMACS 0723, MIRI f770w) | MAST / STScI | Public domain | 35.0 MB | 1.76x | **2.07x** | **+14.83%** | transform used |
+| **Industrial Telemetry** (appliances energy, clean CSV) | UCI ML Repository | CC BY 4.0 | 11.4 MB | 6.02x | **8.01x** | **+24.85%** | transform used |
+| **Industrial Telemetry** (air quality, semicolon CSV) | UCI ML Repository | CC BY 4.0 | 0.8 MB | 3.04x | **3.44x** | **+11.51%** | transform used, but see (a) |
+| **CNC G-Code** (LinuxCNC `3D_Chips.ngc`) | LinuxCNC | GPL-2.0 (b) | 0.2 MB | 4.79x | 4.78x | **-0.06%** | **fallback** (c) |
+| **CAD Mesh** (binary STL, WVS) | Zenodo 5034614 | CC0 | 3.1 MB | 1.86x | 1.86x | **-0.00%** | **fallback** (d) |
+| **CAD Mesh** (binary STL, Ambulacral) | Zenodo 5034614 | CC0 | 0.7 MB | 2.57x | 2.56x | **-0.01%** | **fallback** (d) |
+
+> *Every row was measured through the same public API and bit-exact roundtrip assertion as the synthetic table. "fallback" means the domain transform lost against a plain Zstd encoding of the same input, so the pipeline stored the baseline: the residual cost is the 24-byte KMX2 header.*
+>
+> (a) *This file uses semicolons as the delimiter and commas as the decimal separator. The columnar demux assumes commas, so it splits the decimals and produces ragged rows. Measured with the correct delimiter the same file yields **+26.30%** instead of +11.51% - 14.78 points left on the table by a delimiter that is detectable rather than assumed.*
+>
+> (b) *Downloaded for local benchmarking only. The file carries an internal copyright notice and is not redistributed with this repository.*
+>
+> (c) *`GCodeEngine` matches lines beginning with `G1 `, but real G-code prefixes RS-274/NGC line numbers (`N101 G1 X...`). The transform extracts nothing - it returns a 200,509-byte template and 7 bytes of coordinates - so the 16 bytes of overhead lose the comparison. The synthetic dataset scored +64.10% on this domain because its generator emitted no line numbers.*
+>
+> (d) *Confirmed by measurement, and the two obvious fixes were tested and rejected: transposing at the 50-byte record stride costs -32.21%, and float-aware byte-plane slicing costs -31.60%. Adjacent triangles in an STL share vertices, so the raw stream carries local redundancy that LZ77 exploits and any transposition destroys. On this data the fallback is already making the right choice.*
+
+**Declared gaps.** Two domains in the synthetic table have no real-world
+counterpart here, and we would rather state that than fill it with data of
+uncertain provenance. **LiDAR**: no source found with both a suitable license
+and a usable format - USGS 3DEP is unreachable, and the one live alternative is
+LAZ, which would require `laspy` or PDAL and break the Tier 1 promise of zero
+external dependencies. **Audio**: no source with direct WAV files at a
+reasonable size - the smallest real option costs 157 MB of network transfer for
+a single usable file.
 
 ## Code Synthesis: Unsafe by Design, Opt-In Only
 

@@ -2,6 +2,61 @@
 
 Ultimo aggiornamento: 2026-09-03.
 
+## Difetti di parsing scoperti sui dati reali (2026-09-04)
+
+Sono le due voci a priorità più alta: entrambe fanno **crollare a zero** un
+dominio che sul sintetico rendeva oltre il 60%, ed entrambe sono circoscritte.
+
+### CSV — rilevare il separatore invece di assumerlo
+
+`ColumnarTextEngine` viene invocato da `domain_router.py` con la virgola
+cablata. Su un CSV reale che usa il punto e virgola (locale europeo, con la
+virgola come separatore decimale) il demux spezza i decimali e produce righe
+irregolari.
+
+Misurato su `AirQualityUCI.csv` (785 KB, UCI, CC BY 4.0):
+
+| Separatore | Dimensione | vs Zstd |
+|---|---:|---:|
+| virgola (attuale) | 228,443 | +11.52% |
+| **punto e virgola (corretto)** | **190,276** | **+26.30%** |
+| tab | 258,259 | −0.03% |
+| pipe | 258,219 | −0.01% |
+
+**Lascia sul tavolo 14.78 punti.** La diagnosi è nelle classi di forma: con la
+virgola il file ne produce 5 distinte, con il punto e virgola 2, di cui una
+copre 9.472 righe su 9.473.
+
+**Il rilevamento è affidabile**, e i risultati su tab e pipe lo dimostrano:
+solo il separatore giusto produce un guadagno grande, quindi "scegli quello che
+minimizza le classi di forma" è un segnale netto. L'euristica esisteva già in
+`TextColumnarEngine.is_tabular_text` — scandiva `[",", "\t", ";", "|"]`
+cercando conteggi costanti. Quel modulo è stato ritirato perché non bit-exact,
+ma **l'euristica del separatore era la parte buona** ed è da recuperare.
+
+### G-Code — supportare le N-word (numeri di riga RS-274/NGC)
+
+`GCodeEngine.transform` cerca righe che **iniziano** con `G1 `. Il G-code reale
+prefissa quasi sempre il numero di riga (`N101 G1 X... Y... Z...`), che è
+standard RS-274/NGC. Il risultato è che il parsing non trova nulla.
+
+Misurato su `linuxcnc_3d_chips.ngc` (200 KB, LinuxCNC, GPL-2.0):
+
+- `transform()` restituisce **template di 200,509 byte e coordinate di 7 byte**:
+  il template è l'intero file, non ha estratto niente
+- risultato end-to-end: **−0.06%**, fallback, `domain_id=0` archiviato
+- lo stesso dominio sul dataset sintetico rende **+64.10%**
+
+**È il divario sintetico-reale più grande dell'intera tabella**, e nasce da un
+dettaglio di parsing di una riga: il generatore sintetico emetteva `G1 X...`
+senza numero di riga, un dialetto che molti file CNC reali non usano.
+
+Da fare: riconoscere e separare il prefisso N-word prima del matching, e
+verificare anche gli altri prefissi comuni visti nel file reale (commenti fra
+parentesi tonde, assegnazioni di variabili `#<nome> = valore`).
+
+---
+
 ## Engine orfani da collegare
 
 Componenti che **esistono nel codice e hanno test che passano**, ma che
@@ -34,10 +89,34 @@ e `tests/test_cad_extended.py`.
 `ColumnarTextEngine` collegato oggi fa **+63.14%** sullo stesso input, quindi
 per l'OBJ il routing attuale è già migliore e non va cambiato.
 
-**Il vero buco sono STL e STEP:** il router non li riconosce affatto.
-`detect_domain()` manda `.stl` su `CAD_MESH_OBJ`, che oggi applica il demux
-colonnare testuale — inutile su STL binario. STEP non è nemmeno rilevato.
-`MeshCADEngine` ha già i detector (`is_stl`, `is_step`) pronti da collegare.
+**STL binario — riscritto il 2026-09-04 dopo averlo misurato.** La lettura
+precedente ("manca il routing, basta collegare `MeshCADEngine`") era sbagliata.
+
+Misurato su due STL binari reali di scansione (Zenodo, CC0), il router rileva
+`CAD_MESH_OBJ`, applica il demux colonnare testuale, **perde il confronto e
+archivia `domain_id=0`**: il fallback scatta e il costo è l'header da 24 byte
+(−0.00% e −0.01%). Fin qui come previsto.
+
+**Ma i due approcci strutturali ovvi peggiorano di oltre 30 punti:**
+
+| Approccio | WVS (3.1 MB) | Ambulacral (0.7 MB) |
+|---|---:|---:|
+| `StrideEngine`, stride 50 | **−32.21%** | **−49.11%** |
+| byte-plane per float (12×4) | **−31.60%** | **−48.89%** |
+
+Il motivo è che in una mesh STL **i triangoli adiacenti condividono i vertici**:
+il flusso grezzo ha una ridondanza locale reale che LZ77 sfrutta, e qualunque
+trasposizione la distrugge. `detect_stride()` restituisce inoltre `None` su
+questi dati, quindi `BINARY_PACKETS` non scatterebbe comunque.
+
+**Conclusione: su STL binari di scansione il fallback adattivo sta già
+scegliendo correttamente.** Zstd puro è la migliore fra le opzioni disponibili.
+Non rifare questi due tentativi. Se qualcuno vuole riaprire il caso, serve
+un'idea diversa dalla trasposizione — per esempio la quantizzazione/dedup dei
+vertici condivisi, che attacca la ridondanza invece di distruggerla.
+
+**STEP resta non rilevato** dal router, e non è stato misurato: quello è ancora
+un buco vero, non una conclusione.
 
 ### `TextColumnarEngine` — `src/kolmox/core/text_columnar.py`
 ⚠️ **Non è bit-exact** (fallisce 4 casi limite su 6: senza newline finale,

@@ -101,10 +101,68 @@ The whitepaper PDF generator now derives table column widths from the actual
 column count instead of a hardcoded six, which the seventh column would have
 broken.
 
+### Added — Evidence Tier 2 is now reproducible
+
+`benchmarks/download_datasets.py` and `benchmarks/benchmark_real.py` make the
+real-data claims reproducible by any third party, which until now they were not.
+Roughly **52 MB** of download across six datasets from public archives, each
+declaring URL, license, expected size and SHA-256. The checksum is verified
+after download; a mismatch discards the file and exits non-zero rather than
+proceeding. Resume-on-interrupt works only where the server supports HTTP Range
+(MAST and GitHub do, Zenodo does not) and the manifest records this per entry;
+skip-if-already-valid works everywhere because it operates on the complete file.
+
+Results are published in a **separate** table from the synthetic one, since the
+underlying data differs and merging them would obscure both:
+
+| Dataset | Baseline | KolmoX | Gain | Outcome |
+| :--- | ---: | ---: | ---: | :--- |
+| Astrophysics FITS (JWST SMACS 0723) | 1.76x | 2.07x | +14.83% | transform used |
+| Industrial Telemetry (clean CSV) | 6.02x | 8.01x | +24.85% | transform used |
+| Industrial Telemetry (semicolon CSV) | 3.04x | 3.44x | +11.51% | transform used |
+| CNC G-Code (LinuxCNC) | 4.79x | 4.78x | -0.06% | fallback |
+| CAD Mesh (binary STL, WVS) | 1.86x | 1.86x | -0.00% | fallback |
+| CAD Mesh (binary STL, Ambulacral) | 2.57x | 2.56x | -0.01% | fallback |
+
+The pattern: where the parser recognises the real data the gain holds (FITS
++14.83% against +16.31% synthetic); where it does not, the gain collapses to
+zero and the adaptive fallback correctly stores plain Zstd. Both collapses are
+narrow parsing defects, now diagnosed with measured numbers in `TODO.md`:
+
+- **G-Code**: `GCodeEngine` matches lines beginning with `G1 `, but real files
+  prefix RS-274/NGC line numbers (`N101 G1 X...`). The transform extracts
+  nothing - a 200,509-byte template and 7 bytes of coordinates. The synthetic
+  dataset scored +64.10% because its generator emitted no line numbers. This is
+  the largest synthetic-to-real gap in the project.
+- **CSV**: the columnar demux assumes commas; this file is semicolon-delimited
+  with commas as decimal separators. Measured with the correct delimiter the
+  same file yields **+26.30%** instead of +11.51%.
+
+Two domains are declared as gaps rather than filled with data of uncertain
+provenance: **LiDAR** (no source combining a suitable license with a format that
+does not require `laspy`/PDAL) and **Audio** (no direct WAV source at a
+proportionate size; the smallest real option costs 157 MB of transfer).
+
+### Changed — the STL/STEP entry in TODO.md was wrong
+
+It read "the router does not handle STL, wire up `MeshCADEngine`". Measurement
+contradicts that. Both structural remedies were tested on real binary STL and
+both are far worse than doing nothing: transposing at the 50-byte record stride
+costs **-32.21%**, float-aware byte-plane slicing costs **-31.60%**. Adjacent
+triangles in an STL share vertices, so the raw stream carries local redundancy
+that LZ77 exploits and any transposition destroys. On this data the adaptive
+fallback is already selecting correctly. The entry now records both failed
+attempts with their numbers so nobody repeats them. STEP remains genuinely
+unrouted and unmeasured.
+
 ### Fixed
 
 - The two long-standing failing tests now pass by opting in explicitly. The
   suite is **56/56 green**.
+- `generate_whitepaper_pdf.py` gained an eight-column width profile, and the
+  new footnote markers use ASCII `(a)`-`(d)` rather than superscript digits:
+  U+2075 and up fall outside WinAnsiEncoding and render as black boxes in the
+  PDF while looking correct on GitHub. Verified zero unrenderable glyphs.
 
 ## [1.2.0] - 2026-09-03
 
