@@ -215,6 +215,16 @@ class KolmoXPipeline:
             )
             candidate_packet = candidate_header + comp_aux + comp_primary
 
+            # Invertibility Check: la taglia si guarda SOLO dopo aver dimostrato
+            # che il candidato si rilegge identico. Fino alla 1.3.0 qui c'era il
+            # solo confronto di taglia, e un engine che buttava via i dati
+            # vinceva proprio perche' aveva buttato via i dati: un .xyz a quattro
+            # colonne diventava sette byte e quei sette byte battevano il
+            # baseline. Il costo e' una decompressione in piu' per candidato,
+            # trascurabile rispetto alla compressione che l'ha appena prodotto.
+            if not self._candidate_is_invertible(candidate_packet, data):
+                return baseline_packet
+
             # Competitive Check: mantieni la trasformazione SOLO se batte il baseline grezzo
             if len(candidate_packet) < len(baseline_packet):
                 return candidate_packet
@@ -223,6 +233,20 @@ class KolmoXPipeline:
             pass
 
         return baseline_packet
+
+    def _candidate_is_invertible(self, candidate_packet: bytes, original: bytes) -> bool:
+        """Il candidato si rilegge byte per byte come l'originale?
+
+        La verifica passa dal vero lettore, `decompress_bytes`, non da una sua
+        imitazione: cosi' copre anche l'inquadramento del container e non solo
+        la trasformazione di dominio. Qualunque eccezione conta come esito
+        negativo, perche' un candidato che esplode in lettura e' inutilizzabile
+        esattamente come uno che restituisce byte diversi.
+        """
+        try:
+            return self.decompress_bytes(candidate_packet) == original
+        except Exception:
+            return False
 
     def decompress_bytes(self, kmx_data: bytes) -> bytes:
         """Decompressione universale."""
