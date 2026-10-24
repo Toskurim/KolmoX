@@ -54,7 +54,11 @@ class KolmoXPipeline:
     def __init__(self, chunk_size: int = 65536, compression_level: int = 3, allow_code_execution: bool = False):
         self.chunk_size = chunk_size
         self.compression_level = compression_level
-        self.cctx = zstd.ZstdCompressor(level=compression_level)
+        # write_checksum: ogni frame Zstd porta un XXH64 del contenuto (4 byte).
+        # Un container manomesso o corrotto solleva ZstdError in lettura invece
+        # di decomprimere in silenzio dati diversi. I container scritti senza
+        # checksum (fino alla 1.3.0) restano leggibili.
+        self.cctx = zstd.ZstdCompressor(level=compression_level, write_checksum=True)
         self.dctx = zstd.ZstdDecompressor()
         self.allow_code_execution = allow_code_execution
 
@@ -175,7 +179,7 @@ class KolmoXPipeline:
         filename: Optional[str] = None,
         force_domain: Optional[DomainType] = None,
     ) -> bytes:
-        """Pipeline estesa v1.3.0 (Extended Domains & Multi-stream KMX2 con Adaptive Competitive Fallback)."""
+        """Pipeline estesa v1.3.1 (Extended Domains & Multi-stream KMX2 con Adaptive Competitive Fallback)."""
         target_domain = (
             force_domain
             if force_domain is not None
@@ -220,8 +224,9 @@ class KolmoXPipeline:
             # solo confronto di taglia, e un engine che buttava via i dati
             # vinceva proprio perche' aveva buttato via i dati: un .xyz a quattro
             # colonne diventava sette byte e quei sette byte battevano il
-            # baseline. Il costo e' una decompressione in piu' per candidato,
-            # trascurabile rispetto alla compressione che l'ha appena prodotto.
+            # baseline. Il costo e' una decompressione in piu' per candidato:
+            # misurato fino a +73% sul tempo di compressione a livello 3 (il
+            # peso sta nella trasformazione inversa), nel rumore a livello 19.
             if not self._candidate_is_invertible(candidate_packet, data):
                 return baseline_packet
 
@@ -267,7 +272,14 @@ class KolmoXPipeline:
             comp_primary = kmx_data[offset:]
             primary_payload = self.dctx.decompress(comp_primary)
 
-            return DomainRouter.postcondition(domain, primary_payload, aux_payload)
+            restored = DomainRouter.postcondition(domain, primary_payload, aux_payload)
+            # L'header dichiara la taglia originale: se non torna, il container
+            # e' corrotto o manomesso. Meglio un errore che dati diversi.
+            if len(restored) != orig_size:
+                raise ValueError(
+                    f"KMX2: taglia ricostruita {len(restored)} diversa da quella dichiarata {orig_size}"
+                )
+            return restored
 
         return self.decompress_container(kmx_data)
 

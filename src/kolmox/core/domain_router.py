@@ -90,20 +90,16 @@ class DomainRouter:
         if ext in (".bin", ".pkt", ".pcap", ".dat") and StrideEngine.detect_stride(data) is not None:
             return DomainType.BINARY_PACKETS
 
-        # Heuristic fallback for ASCII point cloud
-        sample = data[:1024].decode("utf-8", errors="ignore").splitlines()
-        if len(sample) >= 3:
-            valid_pts = 0
-            for line in sample[:5]:
-                parts = line.strip().split()
-                if len(parts) >= 3:
-                    try:
-                        float(parts[0]), float(parts[1]), float(parts[2])
-                        valid_pts += 1
-                    except ValueError:
-                        break
-            if valid_pts >= 3:
-                return DomainType.POINTCLOUD_XYZ
+        # Heuristic fallback for ASCII point cloud / tabelle numeriche.
+        # Fino alla 1.3.0 bastava che le prime righe *iniziassero* con tre
+        # float: "1 2 3 hello" passava, e qualunque tabella numerica senza
+        # estensione finiva qui. Ora ogni riga del campione deve essere
+        # interamente numerica, con lo stesso numero di colonne (3..16) e lo
+        # stesso separatore; commenti iniziali (#, //) e righe vuote si
+        # saltano. Il gate di invertibilita' resta comunque la rete di
+        # sicurezza finale.
+        if DomainRouter._looks_like_numeric_table(data):
+            return DomainType.POINTCLOUD_XYZ
 
         # Last-resort structural check: no extension hint matched anything above,
         # but the byte stream still shows a strong fixed-stride record pattern.
@@ -111,6 +107,35 @@ class DomainRouter:
             return DomainType.BINARY_PACKETS
 
         return DomainType.GENERIC
+
+    @staticmethod
+    def _looks_like_numeric_table(data: bytes, sample_lines: int = 5) -> bool:
+        head = data[:4096]
+        lines = head.split(b"\n")
+        if len(head) == len(data):
+            candidates = lines
+        else:
+            candidates = lines[:-1]  # l'ultima riga del campione puo' essere tagliata
+        shapes = []
+        for line in candidates:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith((b"#", b"//")):
+                if shapes:
+                    return False  # un commento in mezzo ai dati: non e' una tabella pulita
+                continue
+            parsed = PointCloudEngine._data_shape(line)
+            if parsed is None:
+                return False
+            fields, sep, _cr = parsed
+            shapes.append((len(fields), sep))
+            if len(shapes) >= sample_lines:
+                break
+        if len(shapes) < 3:
+            return False
+        ncols, _sep = shapes[0]
+        return 3 <= ncols <= 16 and all(s == shapes[0] for s in shapes)
 
     @staticmethod
     def precondition(domain: DomainType, raw_data: bytes) -> Tuple[bytes, bytes]:
