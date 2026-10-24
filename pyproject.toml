@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kolmox"
-version = "1.3.0"
+version = "1.3.1"
 description = "Next-generation high-throughput domain-aware lossless data compression framework."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -18,6 +18,9 @@ dependencies = [
     "requests>=2.31.0",
     "rich>=13.7.0"
 ]
+
+[project.optional-dependencies]
+dev = ["pytest>=7", "hypothesis>=6.100", "astropy>=5"]
 
 [project.scripts]
 kolmox = "kolmox.cli.main:main"
