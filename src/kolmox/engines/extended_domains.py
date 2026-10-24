@@ -6,6 +6,7 @@ KolmoX Extended Domain Preconditioning Engines (v1.1.0)
 Bit-exact, high-throughput transforms with C-acceleration and NumPy fallback.
 """
 
+import operator
 import re
 import struct
 import numpy as np
@@ -46,26 +47,62 @@ class AudioPCMEngine(BaseDomainEngine):
     def is_wav(data: bytes) -> bool:
         return len(data) >= 12 and data[0:4] == b"RIFF" and data[8:12] == b"WAVE"
 
+    # Formato del sidecar da v1.3.1. Il precedente era il solo header WAV:
+    # la coda di PCM non multipla di 4 byte e qualunque chunk RIFF dopo `data`
+    # (LIST/INFO, cue, id3 ...) andavano persi. KMXA2 li conserva entrambi.
+    # Un sidecar legacy inizia con b"RIFF" oppure e' vuoto, quindi non e'
+    # confondibile col marcatore.
+    AUX_MAGIC = b"KMXA2"
+
+    @staticmethod
+    def _find_data_chunk(raw_data: bytes):
+        """(inizio, fine) del payload del chunk `data`, percorrendo i chunk RIFF.
+
+        Cercare b"data" con find() puo' cadere dentro un altro chunk; qui si
+        salta da un chunk all'altro con le loro taglie dichiarate.
+        """
+        pos = 12
+        n = len(raw_data)
+        while pos + 8 <= n:
+            cid = raw_data[pos : pos + 4]
+            (size,) = struct.unpack_from("<I", raw_data, pos + 4)
+            start = pos + 8
+            if cid == b"data":
+                return start, min(start + size, n)
+            pos = start + size + (size & 1)
+        return None
+
     @staticmethod
     def transform_stereo_pcm16(raw_data: bytes) -> Tuple[bytes, bytes]:
         if AudioPCMEngine.is_wav(raw_data):
-            data_pos = raw_data.find(b"data")
-            if data_pos != -1 and len(raw_data) >= data_pos + 8:
-                data_len = struct.unpack("<I", raw_data[data_pos + 4 : data_pos + 8])[0]
-                header = raw_data[: data_pos + 8]
-                pcm = raw_data[data_pos + 8 : data_pos + 8 + data_len]
-            else:
-                header = raw_data[:44]
-                pcm = raw_data[44:]
+            span = AudioPCMEngine._find_data_chunk(raw_data)
+            if span is None:
+                raise ValueError("WAV senza chunk data")
+            start, end = span
+            header = raw_data[:start]
+            pcm = raw_data[start:end]
+            trailer = raw_data[end:]
         else:
             header = b""
             pcm = raw_data
+            trailer = b""
 
         num_samples = len(pcm) // 4
         if num_samples == 0:
-            return header, pcm
+            raise ValueError("PCM troppo corto per la trasformazione stereo")
+        tail = pcm[num_samples * 4 :]
+        aux = (
+            AudioPCMEngine.AUX_MAGIC
+            + struct.pack("<III", len(header), len(tail), len(trailer))
+            + header
+            + tail
+            + trailer
+        )
+        return aux, AudioPCMEngine._encode_samples(pcm[: num_samples * 4])
 
-        samples = np.frombuffer(pcm[: num_samples * 4], dtype=np.int16).reshape(-1, 2)
+    @staticmethod
+    def _encode_samples(pcm: bytes) -> bytes:
+        samples = np.frombuffer(pcm, dtype=np.int16).reshape(-1, 2)
         left = samples[:, 0].astype(np.int32)
         right = samples[:, 1].astype(np.int32)
 
@@ -74,11 +111,26 @@ class AudioPCMEngine(BaseDomainEngine):
         delta_left[0] = left[0]
         delta_left[1:] = (left[1:] - left[:-1]).astype(np.int16)
 
-        processed = delta_left.tobytes() + diff.tobytes()
-        return header, processed
+        return delta_left.tobytes() + diff.tobytes()
 
     @staticmethod
     def inverse_stereo_pcm16(header: bytes, processed: bytes) -> bytes:
+        if header.startswith(AudioPCMEngine.AUX_MAGIC):
+            off = len(AudioPCMEngine.AUX_MAGIC)
+            h_len, t_len, tr_len = struct.unpack_from("<III", header, off)
+            off += 12
+            if off + h_len + t_len + tr_len != len(header):
+                raise ValueError("KMXA2: sidecar incoerente")
+            wav_header = header[off : off + h_len]
+            tail = header[off + h_len : off + h_len + t_len]
+            trailer = header[off + h_len + t_len :]
+            if len(processed) % 4:
+                raise ValueError("KMXA2: payload PCM non multiplo di 4")
+            return AudioPCMEngine._legacy_inverse(wav_header, processed) + tail + trailer
+        return AudioPCMEngine._legacy_inverse(header, processed)
+
+    @staticmethod
+    def _legacy_inverse(header: bytes, processed: bytes) -> bytes:
         num_samples = len(processed) // 4
         if num_samples == 0:
             return header + processed
@@ -223,22 +275,209 @@ class GCodeEngine(BaseDomainEngine):
 
 
 class PointCloudEngine(BaseDomainEngine):
-    @staticmethod
-    def transform_xyz_ascii(raw_data: bytes) -> Tuple[bytes, bytes]:
+    """Nuvole di punti ASCII (.xyz, .pts) e, piu' in generale, tabelle numeriche
+    separate da spazi o tab.
+
+    Formato KMXP2 (da v1.3.1). Il formato precedente teneva solo le righe con
+    esattamente tre campi e le ricostruiva con spazi singoli e "\\n": una
+    quarta colonna, un commento, un header, un tab o un CRLF andavano persi.
+    KMXP2 e' una biiezione per costruzione:
+
+    - il file si divide su b"\\n"; ogni riga e' "di dati" solo se e' la
+      giustapposizione esatta di campi numerici con un unico separatore
+      (spazio o tab), senza spazi iniziali/finali ne' separatori doppi, con un
+      eventuale "\\r" finale. Tutto il resto e' una riga "verbatim" conservata
+      byte per byte;
+    - ogni riga di dati e' descritta da una forma (numero di colonne,
+      separatore, CR): la sequenza delle forme va nel manifest, i valori vanno
+      nel payload colonna per colonna, che e' cio' che Zstd sfrutta.
+
+    I container scritti col vecchio formato restano leggibili.
+    """
+
+    MANIFEST_MAGIC = b"KMXP2"
+    _MAX_SHAPES = 255  # l'id di forma sta in un byte; 0 = riga verbatim
+
+    # Per la biiezione basta che i campi siano non vuoti e senza "\n"; che
+    # siano numeri serve solo a scegliere righe che valga la pena separare in
+    # colonne. Il controllo usa translate() (C puro) invece di una regex per
+    # campo: e' la parte calda della trasformazione.
+    _NUMERIC_CHARS = b"0123456789.+-eE"
+    _DEL_SPACE = _NUMERIC_CHARS + b" "
+    _DEL_TAB = _NUMERIC_CHARS + b"\t"
+
+    @classmethod
+    def _data_shape(cls, line: bytes):
+        """(campi, separatore, cr) se la riga e' di dati, altrimenti None."""
+        cr = line.endswith(b"\r")
+        body = line[:-1] if cr else line
+        if b" " in body:
+            if b"\t" in body or body.translate(None, cls._DEL_SPACE):
+                return None
+            sep = b" "
+        elif b"\t" in body:
+            if body.translate(None, cls._DEL_TAB):
+                return None
+            sep = b"\t"
+        else:
+            return None
+        fields = body.split(sep)
+        if b"" in fields:  # separatori doppi, iniziali o finali
+            return None
+        return fields, sep, cr
+
+    @classmethod
+    def _uniform_fast_path(cls, raw_data: bytes, lines: List[bytes]):
+        """Colonne del caso comune (tutte le righe con la stessa forma, niente
+        CR, eventuale newline finale), calcolate con operazioni sull'intero
+        buffer invece che riga per riga. None se il caso non si applica: allora
+        decide il percorso generale, che produce lo stesso identico formato.
+        """
+        if b"\r" in raw_data:
+            return None
+        has_space = b" " in raw_data
+        has_tab = b"\t" in raw_data
+        if has_space == has_tab:
+            return None
+        sep = b" " if has_space else b"\t"
+        body_lines = lines[:-1] if lines and lines[-1] == b"" else lines
+        if not body_lines:
+            return None
+        delete = cls._DEL_SPACE if has_space else cls._DEL_TAB
+        if raw_data.translate(None, delete + b"\n"):
+            return None
+        counts = set(map(operator.methodcaller("count", sep), body_lines))
+        if len(counts) != 1:
+            return None
+        ncols = counts.pop() + 1
+        if ncols < 2:
+            return None
+        flat = sep.join(body_lines).split(sep)
+        if b"" in flat:
+            return None
+        columns = [flat[j::ncols] for j in range(ncols)]
+        kinds = b"\x01" * len(body_lines) + (b"\x00" if len(body_lines) < len(lines) else b"")
+        verbatim = [b""] if len(body_lines) < len(lines) else []
+        return [(ncols, sep, False)], bytearray(kinds), columns, verbatim
+
+    @classmethod
+    def transform_xyz_ascii(cls, raw_data: bytes) -> Tuple[bytes, bytes]:
         lines = raw_data.split(b"\n")
-        xs, ys, zs = [], [], []
+        fast = cls._uniform_fast_path(raw_data, lines)
+        if fast is not None:
+            shapes, kinds, columns, verbatim = fast
+            return cls._pack(len(lines), shapes, kinds, columns, verbatim)
+        shape_ids = {}
+        shapes = []
+        kinds = bytearray()
+        columns: List[List[bytes]] = []
+        verbatim: List[bytes] = []
+
         for line in lines:
-            parts = line.split()
-            if len(parts) == 3:
-                xs.append(parts[0])
-                ys.append(parts[1])
-                zs.append(parts[2])
-        manifest = struct.pack("<I", len(xs))
-        payload = b"\n".join(xs + [b"---"] + ys + [b"---"] + zs)
-        return manifest, payload
+            parsed = cls._data_shape(line)
+            if parsed is None:
+                kinds.append(0)
+                verbatim.append(line)
+                continue
+            fields, sep, cr = parsed
+            key = (len(fields), sep, cr)
+            sid = shape_ids.get(key)
+            if sid is None:
+                if len(shapes) >= cls._MAX_SHAPES:
+                    raise ValueError("POINTCLOUD_XYZ: troppe forme di riga distinte")
+                shapes.append(key)
+                sid = shape_ids[key] = len(shapes)
+            kinds.append(sid)
+            while len(columns) < len(fields):
+                columns.append([])
+            for j, f in enumerate(fields):
+                columns[j].append(f)
+
+        if not shapes:
+            raise ValueError("POINTCLOUD_XYZ: nessuna riga numerica, niente da trasformare")
+        return cls._pack(len(lines), shapes, kinds, columns, verbatim)
+
+    @classmethod
+    def _pack(cls, n_lines, shapes, kinds, columns, verbatim) -> Tuple[bytes, bytes]:
+        verbatim_blob = b"\n".join(verbatim)
+        manifest = bytearray(cls.MANIFEST_MAGIC)
+        manifest += struct.pack("<IHH", n_lines, len(shapes), len(columns))
+        for ncols, sep, cr in shapes:
+            manifest += struct.pack("<HBB", ncols, sep[0], int(cr))
+        for col in columns:
+            manifest += struct.pack("<I", len(col))
+        manifest += struct.pack("<I", len(verbatim))
+        manifest += kinds
+        manifest += verbatim_blob
+
+        payload = b"\n".join(v for col in columns for v in col)
+        return bytes(manifest), payload
+
+    @classmethod
+    def inverse_xyz_ascii(cls, manifest: bytes, payload: bytes) -> bytes:
+        if manifest.startswith(cls.MANIFEST_MAGIC):
+            return cls._inverse_kmxp2(manifest, payload)
+        return cls._inverse_legacy(manifest, payload)
+
+    @classmethod
+    def _inverse_kmxp2(cls, manifest: bytes, payload: bytes) -> bytes:
+        off = len(cls.MANIFEST_MAGIC)
+        n_lines, n_shapes, n_cols = struct.unpack_from("<IHH", manifest, off)
+        off += 8
+        shapes = [None]
+        for _ in range(n_shapes):
+            ncols, sep, cr = struct.unpack_from("<HBB", manifest, off)
+            off += 4
+            shapes.append((ncols, bytes([sep]), b"\r" if cr else b""))
+        col_counts = []
+        for _ in range(n_cols):
+            col_counts.append(struct.unpack_from("<I", manifest, off)[0])
+            off += 4
+        (n_verbatim,) = struct.unpack_from("<I", manifest, off)
+        off += 4
+        kinds = manifest[off : off + n_lines]
+        if len(kinds) != n_lines:
+            raise ValueError("KMXP2: manifest troncato")
+        verbatim_blob = manifest[off + n_lines :]
+        verbatim = verbatim_blob.split(b"\n") if n_verbatim else []
+        if len(verbatim) != n_verbatim:
+            raise ValueError("KMXP2: righe verbatim incoerenti")
+
+        values = payload.split(b"\n") if sum(col_counts) else []
+        if len(values) != sum(col_counts):
+            raise ValueError("KMXP2: payload incoerente col manifest")
+        columns, start = [], 0
+        for n in col_counts:
+            columns.append(values[start : start + n])
+            start += n
+
+        if n_shapes == 1:
+            # Caso comune: un'unica forma di riga. Le righe si ricompongono
+            # in blocco con zip invece che campo per campo.
+            ncols, sep, cr = shapes[1]
+            rows = iter([sep.join(t) + cr for t in zip(*columns[:ncols])])
+            vit = iter(verbatim)
+            return b"\n".join([next(vit) if k == 0 else next(rows) for k in kinds])
+
+        cursor = [0] * n_cols
+        iv = 0
+        out = []
+        for k in kinds:
+            if k == 0:
+                out.append(verbatim[iv])
+                iv += 1
+                continue
+            ncols, sep, cr = shapes[k]
+            fields = []
+            for j in range(ncols):
+                fields.append(columns[j][cursor[j]])
+                cursor[j] += 1
+            out.append(sep.join(fields) + cr)
+        return b"\n".join(out)
 
     @staticmethod
-    def inverse_xyz_ascii(manifest: bytes, payload: bytes) -> bytes:
+    def _inverse_legacy(manifest: bytes, payload: bytes) -> bytes:
+        """Lettore del formato pre-1.3.1 (solo righe a tre campi)."""
         if len(manifest) < 4:
             return payload
         count = struct.unpack("<I", manifest[:4])[0]

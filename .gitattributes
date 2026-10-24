@@ -57,3 +57,6 @@
 # NOTA: *.obj NON va marcato binary. In questo progetto è il formato mesh
 # Wavefront, che è testo (righe "v x y z" / "f a b c"), non un object file
 # compilato. Marcarlo binary romperebbe i diff su dati di test legittimi.
+
+# --- Fixture dei test (container e originali, confrontati byte per byte) ---
+tests/fixtures/** binary

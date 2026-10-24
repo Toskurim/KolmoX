@@ -8,6 +8,9 @@ import numpy as np
 
 class RasterEngine:
     MAGIC_HEADER = b"KMXR"
+    # Marcatore del sidecar BMP da v1.3.1. Un sidecar legacy inizia con la
+    # lunghezza dell'header (54 per i BMP supportati), quindi non collide.
+    AUX_MAGIC = b"KMXR2"
 
     @staticmethod
     def filter_2d_plane(plane: np.ndarray) -> bytes:
@@ -26,14 +29,23 @@ class RasterEngine:
         # Each pixel depends on the already-reconstructed left/up neighbors,
         # so unlike filter_2d_plane this can't be vectorized in NumPy; a C
         # extension (like fast_transforms.c) is the path to speed this up.
-        filtered = np.frombuffer(data, dtype=np.uint8).reshape((height, width))
-        plane = np.zeros((height, width), dtype=np.uint8)
+        # Il ciclo lavora su bytearray/liste Python, non su scalari NumPy:
+        # l'indicizzazione elemento per elemento di un ndarray costa un ordine
+        # di grandezza in piu'. La meta' di "up" si precalcola una volta per riga.
+        if len(data) != height * width:
+            raise ValueError("Piano raster di lunghezza errata")
+        out = bytearray(height * width)
+        up_half = [0] * width
         for y in range(height):
+            base = y * width
+            row = data[base : base + width]
+            left = 0
             for x in range(width):
-                left = int(plane[y, x - 1]) if x > 0 else 0
-                up = int(plane[y - 1, x]) if y > 0 else 0
-                plane[y, x] = (int(filtered[y, x]) + (left // 2 + up // 2)) % 256
-        return plane
+                v = (row[x] + (left >> 1) + up_half[x]) & 0xFF
+                out[base + x] = v
+                left = v
+            up_half = [b >> 1 for b in out[base : base + width]]
+        return np.frombuffer(bytes(out), dtype=np.uint8).reshape((height, width))
 
     @classmethod
     def compress_rgb(cls, raw_rgb: bytes, width: int, height: int, channels: int = 3) -> bytes:
@@ -118,18 +130,44 @@ class RasterEngine:
 
         filtered = cls.compress_rgb(tight_pixels, width, height, channels)
 
+        # Il padding di riga si conserva com'e'. Fino alla 1.3.0 veniva
+        # rigenerato a zero in lettura: i BMP con padding a zero passavano per
+        # coincidenza, gli altri tornavano diversi. Nel caso comune (tutto
+        # zero) non costa nulla: pad_mode 0 e nessun byte memorizzato.
+        if row_padding > 0:
+            padding = np.ascontiguousarray(padded_arr[:, row_size:]).tobytes()
+            pad_mode = 1 if any(padding) else 0
+        else:
+            padding = b""
+            pad_mode = 0
+        stored_padding = padding if pad_mode else b""
+
         aux = (
-            struct.pack("<IH", len(raw_header), row_padding)
+            cls.AUX_MAGIC
+            + struct.pack("<IHBI", len(raw_header), row_padding, pad_mode, len(stored_padding))
             + raw_header
+            + stored_padding
             + trailing
         )
         return filtered, aux
 
     @classmethod
     def inverse_bmp(cls, primary: bytes, aux: bytes) -> bytes:
-        header_len, row_padding = struct.unpack_from("<IH", aux, 0)
-        raw_header = aux[6 : 6 + header_len]
-        trailing = aux[6 + header_len :]
+        stored_padding = b""
+        if aux.startswith(cls.AUX_MAGIC):
+            off = len(cls.AUX_MAGIC)
+            header_len, row_padding, pad_mode, pad_len = struct.unpack_from("<IHBI", aux, off)
+            off += 11
+            raw_header = aux[off : off + header_len]
+            stored_padding = aux[off + header_len : off + header_len + pad_len]
+            trailing = aux[off + header_len + pad_len :]
+            if pad_mode not in (0, 1) or len(stored_padding) != pad_len:
+                raise ValueError("KMXR2: sidecar incoerente")
+        else:
+            # Sidecar pre-1.3.1: padding sempre ricostruito a zero.
+            header_len, row_padding = struct.unpack_from("<IH", aux, 0)
+            raw_header = aux[6 : 6 + header_len]
+            trailing = aux[6 + header_len :]
 
         tight_pixels = cls.decompress_rgb(primary)
         _magic, width, height, channels = struct.unpack(">4sIII", primary[:16])
@@ -141,6 +179,12 @@ class RasterEngine:
             )
             padded_arr = np.zeros((height, row_size + row_padding), dtype=np.uint8)
             padded_arr[:, :row_size] = tight_arr
+            if stored_padding:
+                if len(stored_padding) != height * row_padding:
+                    raise ValueError("KMXR2: padding di lunghezza errata")
+                padded_arr[:, row_size:] = np.frombuffer(stored_padding, dtype=np.uint8).reshape(
+                    (height, row_padding)
+                )
             pixel_bytes = padded_arr.tobytes()
         else:
             pixel_bytes = tight_pixels
