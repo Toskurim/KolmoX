@@ -17,6 +17,7 @@ venv/
 benchmarks/datasets/*
 !benchmarks/datasets/.gitkeep
 *.kmx
+!tests/fixtures/legacy_v130/*.kmx
 *.bin
 .vscode/
 .idea/
