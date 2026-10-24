@@ -1,6 +1,55 @@
 # KolmoX — lavori aperti
 
-Ultimo aggiornamento: 2026-09-03.
+Ultimo aggiornamento: 2026-10-24.
+
+## ~~PERDITA DATI in v1.3.0~~ — RISOLTA in v1.3.1 (2026-10-24)
+
+Chiusa sia la falla sia le sue cause. Dettaglio completo in CHANGELOG 1.3.1.
+
+- **Gate di invertibilità** (`3e0702b`): il candidato si confronta in taglia
+  solo dopo essersi riletto identico tramite `decompress_bytes()`.
+- **Engine corretti alla fonte**, sidecar nuovi con marcatore e lettura dei
+  vecchi: `KMXP2` (point cloud: colonne arbitrarie, tab, CR per riga, righe
+  verbatim), `KMXA2` (audio: coda PCM e chunk dopo `data`, chunk `data` trovato
+  percorrendo i chunk RIFF), `KMXR2` (raster: padding conservato se non zero).
+- **`detect_domain()` più stretto**: senza estensione serve un campione di
+  righe interamente numeriche, stessa forma, 3..16 colonne.
+- **Integrità**: checksum XXH64 su ogni frame Zstd + controllo della taglia
+  dichiarata in lettura.
+- **Property testing con `hypothesis`** (`tests/test_properties.py`, P1-P6):
+  7 rosse su 1.3.0, 4 sul solo gate, 0 su 1.3.1 anche con 2.000 esempi.
+- Raster unfilter ~3,4x più veloce (bytearray invece di scalari NumPy).
+
+### Resta aperto da qui
+
+- **Header KMX2 senza checksum**: magic, versione e domain_id non sono coperti.
+  Serve un cambio di formato (es. CRC dell'header o hash dell'originale nel
+  header): da decidere, non urgente.
+- **Compatibilità in avanti**: i lettori <= 1.3.0 non conoscono KMXP2/KMXA2/KMXR2
+  e possono restituire byte sbagliati invece di un errore. Non correggibile a
+  posteriori; documentato nel CHANGELOG.
+- **Raster decode** ancora sequenziale in Python: la via vera resta la C
+  extension, ed è più importante di prima perché ora pesa anche in
+  compressione (verifica del candidato).
+
+### Costo già misurato del gate (non ripeterlo a mano)
+
+Sovraccarico sul tempo di compressione, A/B nello stesso processo con la sola
+`_candidate_is_invertible` neutralizzata: livello 3 da +22% a **+73%**,
+livello 9 da +2% a +39%, livello 19 entro il rumore di misura. Livello 3 è il
+default della libreria. Il peso sta nella **trasformazione inversa**, non nella
+decompressione Zstd (52,0 ms contro 9,7 ms su `energydata_complete.csv`):
+verificare sui payload non compressi recupererebbe solo il 15-25% e perderebbe
+la copertura dell'inquadramento del container. Scelta consapevole di non farlo.
+
+### Branch in sospeso
+
+`wip/scada-datasets` (`a88c611`) parcheggia lavoro di un'altra sessione, **non
+verificato**: due dataset SCADA in `benchmark_real.py` le cui note dicono esse
+stesse che il dato non è mai stato misurato né il file ispezionato. Non
+mergiare e non citarne numeri prima di averlo eseguito.
+
+---
 
 ## Prosa introduttiva rimasta indietro (2026-09-04)
 

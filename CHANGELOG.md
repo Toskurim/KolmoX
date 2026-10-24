@@ -1,5 +1,118 @@
 # Changelog
 
+## [1.3.1] - 2026-10-24
+
+**Data-loss fix. Replaces 1.3.0, which has been yanked from PyPI.** 1.3.0 could
+return different bytes from the ones it was given, with exit code 0 and no
+error. Everyone on 1.3.0 should upgrade, and any container written by 1.3.0
+for the point cloud, audio or raster domains should be checked against its
+original if the original still exists.
+
+### Fixed — silent data loss
+
+Root cause: `compress_bytes()` kept the domain candidate whenever it was
+smaller than the plain-Zstd baseline, and checked nothing else. An engine that
+threw data away therefore *won*, because it had thrown data away. Three engines
+did:
+
+| Engine | Input that lost data in 1.3.0 | What came back |
+| :--- | :--- | :--- |
+| `PointCloudEngine` | `.xyz` with 4+ columns, comments, header lines, tab separators, CRLF; **any numeric table with no extension** (routed here by the heuristic) | lines without exactly 3 fields dropped; a 637 KB 4-column file came back as 7 bytes; tabs/CRLF rewritten |
+| `AudioPCMEngine` | WAV whose PCM length is not a multiple of 4; RIFF chunks after `data` (`LIST`/`INFO`, `id3 `) | tail and trailing chunks dropped |
+| `RasterEngine` | BMP with non-zero row padding | padding rewritten as zeros |
+
+Two independent fixes, either of which alone would have prevented the loss:
+
+1. **Invertibility gate** (`pipeline.py`). A candidate is decompressed through
+   the real reader, `decompress_bytes()`, and compared byte for byte with the
+   input *before* its size is looked at. Any exception counts as a failure.
+   With only this change, all eleven known loss cases fall back to the Zstd
+   baseline and return bit-exact.
+2. **The engines are fixed at source**, with new sidecar formats marked by a
+   magic so that the old ones are still read:
+   - `KMXP2` — point cloud: arbitrary column count, space or tab, per-line CR,
+     comments/headers/blank lines kept verbatim. The transform is a bijection
+     by construction. A whole-buffer fast path handles the common uniform case.
+   - `KMXA2` — audio: the WAV header, the PCM tail and everything after the
+     `data` chunk are stored. The `data` chunk is now found by walking RIFF
+     chunk sizes instead of `find(b"data")`, which could land inside another
+     chunk.
+   - `KMXR2` — raster: row padding is stored when it is not all zero (zero
+     padding still costs nothing).
+
+   With the gate *and* the fixes, the eight point-cloud and two audio cases are
+   no longer just safe but compressed again by their domain transform (domain
+   id 4 or 3 instead of 0), and a BMP with non-zero padding keeps the raster
+   transform whenever the 2D filter pays off (measured on a smooth 201x150
+   image: domain 8, bit-exact, same ratio as with zero padding within 1%).
+
+### Changed — point-cloud auto-detection
+
+Without a file extension, a file used to be routed to `POINTCLOUD_XYZ` if its
+first lines merely *started* with three floats (`1 2 3 hello` qualified). Now
+every sampled line must be entirely numeric, with the same column count (3 to
+16) and the same separator; leading `#`/`//` comments and blank lines are
+skipped, a comment in the middle of the data disqualifies the file. Files with
+`.xyz`/`.pts` are routed as before.
+
+### Added — integrity checking
+
+- Every Zstd frame written by the pipeline carries an **XXH64 content
+  checksum** (`write_checksum=True`, 4 bytes per frame). A corrupted or
+  tampered payload now raises `ZstdError` instead of decompressing into
+  different bytes.
+- The original size declared in the KMX2 header is **checked on read**.
+- Not covered: the magic, version and domain-id fields of the 24-byte header.
+  Covering them needs a header format change and is listed in TODO.md.
+
+### Added — property-based test suite
+
+`tests/test_properties.py`, built on `hypothesis` (now in `requirements.txt`
+and in the `dev` extra): roundtrip with auto-detection on structured
+near-valid inputs (P1), every transform is a bijection or rejects the input
+(P2), roundtrip with every domain forced on arbitrary bytes (P3), never larger
+than the baseline (P4), a tampered container never decodes silently (P5), and
+containers written by 1.3.0 still decode (P6, fixtures in
+`tests/fixtures/legacy_v130/`). Checked against history: the suite fails 7
+tests on 1.3.0 and 4 on the gate-only commit, and passes on 1.3.1 — also with
+2,000 examples per property. Full suite: 141 passed.
+
+### Performance
+
+The gate is not free. A/B in one process, only the verification neutralised,
+compression time:
+
+| dataset | MB | level 3 | level 9 | level 19 |
+| :--- | ---: | ---: | ---: | ---: |
+| linuxcnc_3d_chips.ngc | 0.2 | +47.2% | +30.0% | +3.6% |
+| AirQualityUCI.csv | 0.7 | +46.0% | +26.0% | +17.2% |
+| energydata_complete.csv | 11.4 | +57.1% | +19.8% | +3.0% |
+| jwst..miri_f770w.fits | 35.0 | +22.4% | +2.2% | -2.0% |
+| synthetic pointcloud.xyz | 3.8 | +73.4% | +38.9% | -0.4% |
+| zenodo_ambulacral.stl | 0.7 | +6.8% | +0.0% | -0.5% |
+
+Level 3 is the default, so this is what most callers pay. The weight is in the
+inverse transform, not in Zstd decompression (e.g. 52.0 ms of postcondition vs
+9.7 ms of Zstd on `energydata_complete.csv`), so verifying the uncompressed
+payloads instead would recover only 15-25% and would stop covering the
+container framing: deliberately not done. Decompression is unaffected. The
+checksum costs 0-6% on decompression in repeated runs.
+
+Partly offsetting it: the raster unfilter loop now runs on Python
+bytearrays instead of NumPy scalars, about **3.4x faster** (same output).
+
+Compression ratios: unchanged within 0.1 points on every benchmark row
+(4 bytes of checksum per frame).
+
+### Compatibility
+
+- **Reading:** 1.3.1 reads every container written by earlier releases,
+  including the old point-cloud, audio and raster sidecars (P6).
+- **Writing:** containers written by 1.3.1 in domains 3, 4 and 8 use the new
+  sidecars and **must not be read with 1.3.0 or earlier**: those readers do not
+  know the markers and can return wrong bytes. Other domains are unaffected,
+  and the added Zstd checksums are understood by every Zstd reader.
+
 ## [1.3.0] - 2026-09-04
 
 ### Changed — video payload format

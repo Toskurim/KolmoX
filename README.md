@@ -34,22 +34,24 @@ All tests certify exact mathematical data restoration (zero precision loss, bit-
 
 | Data Domain | Pipeline / Transform | Baseline (Zstd L3) | KolmoX (KMX2) | Gain vs Zstd-3 | Gain vs Zstd-19 ‡ | Throughput (Comp / Decomp) |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **CNC G-Code (.gcode)** † | Columnar Axis Separation | 5.69x | **15.84x** | **+64.10%** | +57.33% | ~24 MB/s / ~35 MB/s |
+| **CNC G-Code (.gcode)** † | Columnar Axis Separation | 5.69x | **15.82x** | **+64.06%** | +57.13% | ~24 MB/s / ~35 MB/s |
 | **Parametric 3D CAD Mesh (.obj)** † | Prefix-Grouped Vertex Plane Slicing | 6.00x | **16.27x** | **+63.12%** | **+68.21%** | ~40 MB/s / ~80 MB/s |
 | **Audio PCM 16-bit (.wav)** † | Stereo Mid/Side Decorrelation | 1.02x | **2.59x** | **+60.48%** | +38.78% | ~172 MB/s / ~284 MB/s |
-| **LiDAR XYZ Point Cloud** † ¹ | Columnar Coordinate Slicing | 27.11x | **65.79x** | **+58.79%** | +23.37% | ~80 MB/s / ~106 MB/s |
+| **LiDAR XYZ Point Cloud** † ¹ | Columnar Coordinate Slicing | 27.11x | **65.69x** | **+58.73%** | +23.17% | ~80 MB/s / ~106 MB/s |
 | **Temporal Video Sequence (.kmxvraw)** † | Frame Arithmetic Delta (SIMD) | 1.00x | **2.31x** | **+56.74%** | **+60.22%** | ~148 MB/s / ~168 MB/s |
 | **Binary Register Packets (.bin)** † | Stride Autocorr + Demux | 1.86x | **4.10x** | **+54.67%** | +44.38% | ~158 MB/s / ~1094 MB/s |
-| **Industrial Telemetry (.csv)** † | Shape-Grouped Columnar Demux | 4.59x | **8.23x** | **+44.24%** | +35.59% | ~47 MB/s / ~98 MB/s |
-| **2D Natural Sensor Raster (.bmp)** † | 2D Spatial Delta | 1.07x | **1.80x** | **+40.38%** | +33.59% | ~37 MB/s / ~2.4 MB/s |
+| **Industrial Telemetry (.csv)** † | Shape-Grouped Columnar Demux | 4.59x | **8.23x** | **+44.24%** | +35.58% | ~47 MB/s / ~98 MB/s |
+| **2D Natural Sensor Raster (.bmp)** † | 2D Spatial Delta | 1.07x | **1.80x** | **+40.37%** | +33.58% | ~37 MB/s / ~8 MB/s ⁴ |
 | **Temporal Video (real gameplay)** ³ | Frame Arithmetic Delta (SIMD) | 1.70x | **2.79x** | **+38.87%** | not measured | ~87 MB/s / ~59 MB/s |
 | **Dense Float32 Buffer (250k values)** † | IEEE-754 Byte-Plane Slicing | 1.29x | **1.89x** | **+31.86%** | +20.47% | ~236 MB/s / ~642 MB/s |
 | **Astrophysics FITS (JWST) — real data** | IEEE-754 Byte-Plane Slicing (auto-routed) | 1.47x | **1.76x** | **+16.31%** | **+20.64%** | ~213 MB/s / ~714 MB/s |
-| **x86 Binary Executable (.exe)** † ² | Adaptive Fallback (BCJ/Zstd) | 7.59x | **7.56x** | **-0.46%** | -0.46% | ~13 MB/s / ~879 MB/s |
+| **x86 Binary Executable (.exe)** † ² | Adaptive Fallback (BCJ/Zstd) | 7.59x | **7.55x** | **-0.53%** | -0.54% | ~13 MB/s / ~879 MB/s |
 
-> *Methodology: every row above was measured on 2026-09-03 by running the data through the public `KolmoXPipeline.compress_bytes()` / `decompress_bytes()` API - the same path a user gets - with a bit-exact roundtrip assertion on each. Figures produced by calling engine classes directly, outside the pipeline, are not reported here: they omit the 24-byte KMX2 container header and bypass the adaptive competitive fallback. Every † row is reproducible with `python benchmarks/benchmark_extended.py`, which regenerates each dataset from a fixed seed and re-asserts every roundtrip. Compression ratios are deterministic; the throughput columns are single-run samples and vary by roughly ±15% between runs.*
+> *Methodology: ratios re-measured on 2026-10-24 for v1.3.1 (throughput columns are from the 2026-09-03 run, see note ⁴), by running the data through the public `KolmoXPipeline.compress_bytes()` / `decompress_bytes()` API - the same path a user gets - with a bit-exact roundtrip assertion on each. Figures produced by calling engine classes directly, outside the pipeline, are not reported here: they omit the 24-byte KMX2 container header and bypass the adaptive competitive fallback. Every † row is reproducible with `python benchmarks/benchmark_extended.py`, which regenerates each dataset from a fixed seed and re-asserts every roundtrip. Compression ratios are deterministic; the throughput columns are single-run samples and vary by roughly ±15% between runs.*
 >
 > † *Synthetic dataset, generated programmatically. Only the Astrophysics FITS row uses a real-world production capture (a 117 MB NASA/STScI JWST MIRI observation of the Carina Nebula, compressed whole-file through the automatic domain router). Extracting just the pixel plane with astropy and compressing that instead yields 1.26x → 1.61x (+21.41%).*
+>
+> ⁴ *Since v1.3.1 every domain candidate is decompressed and compared with the input before it is kept (see [Project Status](#project-status)), so **compression** throughput is lower than the 2026-09-03 figures in this table: up to roughly a third to a half slower at the default level 3, within noise at level 19. Ratios are unaffected (each frame now also carries a 4-byte XXH64 checksum). The raster decode figure was re-estimated from the v1.3.1 unfilter loop, about 3.4x faster than before on the same machine; it is still sequential, pure Python.*
 >
 > ¹ *The LiDAR dataset is a deterministic arithmetic ramp, which is why even the plain Zstd baseline reaches 27.11x. It demonstrates the transform works, but it is **not** representative of real scanner output - treat this row as a mechanism check, not a performance claim.*
 >
@@ -101,7 +103,7 @@ the useful part, and because it is what told us where to look.
 | **Astrophysics FITS** (JWST SMACS 0723, MIRI f770w) | MAST / STScI | Public domain | 35.0 MB | 1.76x | **2.07x** | **+14.83%** | transform used |
 | **Industrial Telemetry** (appliances energy, clean CSV) | UCI ML Repository | CC BY 4.0 | 11.4 MB | 6.02x | **8.01x** | **+24.85%** | transform used |
 | **Industrial Telemetry** (air quality, semicolon CSV) | UCI ML Repository | CC BY 4.0 | 0.8 MB | 3.04x | **4.13x** | **+26.29%** | transform used (a) |
-| **CNC G-Code** (LinuxCNC `3D_Chips.ngc`) | LinuxCNC | GPL-2.0 (b) | 0.2 MB | 4.79x | **6.13x** | **+21.93%** | transform used, but read (c) |
+| **CNC G-Code** (LinuxCNC `3D_Chips.ngc`) | LinuxCNC | GPL-2.0 (b) | 0.2 MB | 4.79x | **6.13x** | **+21.91%** | transform used, but read (c) |
 | **CAD Mesh** (binary STL, WVS) | Zenodo 5034614 | CC0 | 3.1 MB | 1.86x | 1.86x | **-0.00%** | **fallback** (d) |
 | **CAD Mesh** (binary STL, Ambulacral) | Zenodo 5034614 | CC0 | 0.7 MB | 2.57x | 2.56x | **-0.01%** | **fallback** (d) |
 
@@ -129,6 +131,14 @@ a single usable file.
 KolmoX is young and under active development. More domains, wider coverage of
 real-world dialects, and performance work are all in progress.
 
+**v1.3.0 was withdrawn because it could lose data silently** (yanked on PyPI,
+marked pre-release on GitHub). Three engines - point cloud, audio PCM and BMP
+raster - dropped bytes on inputs outside their happy path, and the pipeline
+kept the broken candidate because it was smaller. v1.3.1 fixes the engines at
+source and verifies every candidate before keeping it; see the
+[CHANGELOG](CHANGELOG.md) for the full list of affected inputs. Use v1.3.1 or
+later.
+
 **Known limitations are stated rather than omitted**, and each is tracked in
 [TODO.md](TODO.md) with the measurements behind it:
 
@@ -136,10 +146,23 @@ real-world dialects, and performance work are all in progress.
   that combines a suitable license with a format usable without extra
   dependencies. Both appear in the synthetic table only, and the gap is declared
   in the real-world one.
-- **Raster decoding runs at roughly 2.4 MB/s.** The unfilter step has an
-  inherent sequential dependency - each pixel needs its already-reconstructed
-  neighbour - so it cannot be vectorised in NumPy and has not yet been ported to
-  the C extension. Encoding is vectorised and runs at about 95 MB/s.
+- **Raster decoding is slow** - about 3.4x faster in v1.3.1 than before, but
+  still on the order of 10 MB/s. The unfilter step has an inherent sequential
+  dependency - each pixel needs its already-reconstructed neighbour - so it
+  cannot be vectorised in NumPy and has not yet been ported to the C extension.
+  Since v1.3.1 this also slows down *compression* of BMP files, because every
+  candidate is decoded once to be verified.
+- **Compression verifies itself, and that costs time.** Since v1.3.1 a domain
+  transform is kept only after the candidate has been decompressed through the
+  real reader and compared byte for byte with the input. This is what stopped
+  the silent data loss of v1.3.0, and it costs from a few percent up to about +75%
+  compression time at the default level 3 (measured per dataset in the CHANGELOG), and
+  noise-level overhead at level 19. Decompression is unaffected.
+- **The 24-byte KMX2 header is not checksummed.** Every Zstd frame carries an
+  XXH64 checksum and the declared original size is checked on read, so damage
+  to the payload or to the size field raises an error instead of returning
+  different bytes. The magic, version and domain id fields are not covered;
+  protecting them would need a format change.
 - **G-code parametric expressions are not extracted.** Where a file writes
   `Y[#<yscale>*53.293]` instead of a literal, the coordinate stays inside the
   template. Deciding whether to handle that dialect is waiting on a second real
@@ -238,7 +261,7 @@ with open("large_scan.xyz", "rb") as src, open("large_scan.kmxs", "wb") as dst:
 
 ## Testing & Fuzz Resilience
 
-KolmoX includes a 117-test validation suite covering end-to-end roundtrips, C-ABI equivalence, astrophysics FITS preconditioning, and fuzz resilience against malformed or truncated data:
+KolmoX includes a 141-test validation suite - including a `hypothesis` property suite (roundtrip on any input, bijection of every transform, never worse than the baseline, tampered containers never decode silently, v1.3.0 containers still readable) - covering end-to-end roundtrips, C-ABI equivalence, astrophysics FITS preconditioning, and fuzz resilience against malformed or truncated data:
 
 ```bash
 pytest tests/ -v
